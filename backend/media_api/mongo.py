@@ -1,8 +1,10 @@
 from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo.collection import Collection
 from django.conf import settings
 
 
 _client: MongoClient | None = None
+_media_collection: Collection | None = None
 
 
 def mongo_client() -> MongoClient:
@@ -13,6 +15,9 @@ def mongo_client() -> MongoClient:
 
 
 def media_collection():
+    global _media_collection
+    if _media_collection is not None:
+        return _media_collection
     db = mongo_client()[settings.MEDIA_CONFIG["MEDIA_MONGO_DATABASE"]]
     collection = db["media_items"]
     collection.create_index([("webhard_file_id", ASCENDING)], unique=True)
@@ -20,5 +25,7 @@ def media_collection():
     collection.create_index([("owner_user_id", ASCENDING), ("content_kind", ASCENDING), ("original_created_at", DESCENDING)])
     collection.create_index([("owner_user_id", ASCENDING), ("tags", ASCENDING)])
     collection.create_index([("owner_user_id", ASCENDING), ("album", ASCENDING)])
-    return collection
-
+    collection.create_index([("content_kind", ASCENDING), ("original_created_at", DESCENDING), ("webhard_file_id", DESCENDING)])
+    collection.create_index([("tags", ASCENDING), ("original_created_at", DESCENDING), ("webhard_file_id", DESCENDING)])
+    _media_collection = collection
+    return _media_collection

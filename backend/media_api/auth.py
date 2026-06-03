@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 from django.conf import settings
@@ -7,6 +9,7 @@ from django.http import HttpRequest, JsonResponse
 
 
 WEBHARD_SERVICE = "WEBHARD_SERVICE"
+_user_cache: dict[str, tuple[float, "CurrentUser"]] = {}
 
 
 @dataclass(frozen=True)
@@ -33,9 +36,11 @@ class CurrentUser:
 
 
 def require_user(request: HttpRequest, permission: str | None = None) -> CurrentUser | JsonResponse:
-    token = auth_token(request)
+    token, source = auth_token_with_source(request)
     if not token:
         return JsonResponse({"ok": False, "code": "UNAUTHORIZED", "message": "login is required"}, status=401)
+    if source == "cookie" and is_cross_site_request(request):
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "authentication cookie cannot be used for cross-site requests"}, status=403)
 
     current_user = fetch_current_user(token)
     if current_user is None:
@@ -48,13 +53,59 @@ def require_user(request: HttpRequest, permission: str | None = None) -> Current
 
 
 def auth_token(request: HttpRequest) -> str:
+    token, _source = auth_token_with_source(request)
+    return token
+
+
+def auth_token_with_source(request: HttpRequest) -> tuple[str, str]:
     authorization = request.headers.get("Authorization", "")
     if authorization.startswith("Bearer "):
-        return authorization[len("Bearer ") :].strip()
-    return request.COOKIES.get("ACCESS_TOKEN", "").strip()
+        return authorization[len("Bearer ") :].strip(), "bearer"
+    cookie = request.COOKIES.get("ACCESS_TOKEN", "").strip()
+    return cookie, "cookie" if cookie else ""
+
+
+def is_cross_site_request(request: HttpRequest) -> bool:
+    sec_fetch_site = request.headers.get("Sec-Fetch-Site", "").strip().lower()
+    if sec_fetch_site == "cross-site":
+        return True
+    if sec_fetch_site in {"same-origin", "same-site", "none"}:
+        return False
+    return not is_same_origin(request, request.headers.get("Origin", "")) or not is_same_origin(request, request.headers.get("Referer", ""))
+
+
+def is_same_origin(request: HttpRequest, source: str) -> bool:
+    if not source or not source.strip():
+        return True
+    try:
+        parsed = urlparse(source.strip())
+    except ValueError:
+        return False
+    if not parsed.scheme or not parsed.hostname:
+        return False
+    request_scheme = "https" if request.is_secure() else "http"
+    request_host, request_port = request_host_and_port(request, request_scheme)
+    source_port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    return (
+        parsed.scheme.lower() == request_scheme
+        and parsed.hostname.lower() == request_host
+        and request_port == int(source_port)
+    )
+
+
+def request_host_and_port(request: HttpRequest, scheme: str) -> tuple[str, int]:
+    host_header = request.get_host()
+    parsed = urlparse(f"//{host_header}")
+    host = (parsed.hostname or host_header.split(":")[0]).lower()
+    if parsed.port:
+        return host, parsed.port
+    return host, 443 if scheme == "https" else 80
 
 
 def fetch_current_user(token: str) -> CurrentUser | None:
+    cached = cached_current_user(token)
+    if cached is not None:
+        return cached
     url = f"{settings.MEDIA_CONFIG['ADMIN_SERVICE_BASE_URL']}/auth/me.json"
     try:
         response = requests.post(
@@ -74,11 +125,46 @@ def fetch_current_user(token: str) -> CurrentUser | None:
     user_id = str(data.get("user_id") or "")
     if not user_id:
         return None
-    return CurrentUser(
+    current_user = CurrentUser(
         user_id=user_id,
         roles=[str(item) for item in data.get("roles") or []],
         service_permissions=normalize_permissions(data.get("service_permissions")),
     )
+    cache_current_user(token, current_user)
+    return current_user
+
+
+def cached_current_user(token: str) -> CurrentUser | None:
+    ttl = auth_cache_ttl()
+    if ttl <= 0:
+        return None
+    cached = _user_cache.get(token)
+    if not cached:
+        return None
+    expires_at, current_user = cached
+    if expires_at <= monotonic():
+        _user_cache.pop(token, None)
+        return None
+    return current_user
+
+
+def cache_current_user(token: str, current_user: CurrentUser) -> None:
+    ttl = auth_cache_ttl()
+    if ttl <= 0:
+        return
+    if len(_user_cache) > 1000:
+        now = monotonic()
+        expired = [key for key, (expires_at, _) in _user_cache.items() if expires_at <= now]
+        for key in expired:
+            _user_cache.pop(key, None)
+    _user_cache[token] = (monotonic() + ttl, current_user)
+
+
+def auth_cache_ttl() -> float:
+    try:
+        return max(float(settings.MEDIA_CONFIG.get("AUTH_CACHE_SECONDS") or 5), 0)
+    except (TypeError, ValueError):
+        return 5
 
 
 def normalize_permissions(raw: Any) -> dict[str, list[str]]:
@@ -94,4 +180,3 @@ def normalize_permissions(raw: Any) -> dict[str, list[str]]:
 
 def normalize_code(value: str) -> str:
     return value.strip().replace("-", "_").replace(" ", "_").upper()
-
