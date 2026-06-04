@@ -4,8 +4,8 @@ import { Download, Heart, Image as ImageIcon, Info, Music, RefreshCw, Search, St
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_MEDIA_API_BASE || "";
-const ADMIN_BASE_URL = "http://localhost:8081";
-const WEBHARD_BASE_URL = "http://localhost:8083";
+const ADMIN_BASE_URL = serviceBaseUrl(import.meta.env.VITE_ADMIN_BASE_URL, 8081);
+const WEBHARD_BASE_URL = serviceBaseUrl(import.meta.env.VITE_WEBHARD_BASE_URL, 8083);
 const PAGE_SIZE = 30;
 const DEMO_ITEMS = buildDemoItems();
 
@@ -722,7 +722,7 @@ function applyPatchValues(item, patch) {
 }
 
 function loginUrl() {
-  const returnUrl = typeof window === "undefined" ? "http://localhost:5174/" : window.location.href;
+  const returnUrl = typeof window === "undefined" ? "" : window.location.href;
   return `${ADMIN_BASE_URL}/service-login-page.do?service_nm=${encodeURIComponent("Media Service")}&return_url=${encodeURIComponent(returnUrl)}`;
 }
 
@@ -748,6 +748,21 @@ function postAdminLogout() {
 
 function isDemo(item) {
   return String(item?.webhard_file_id || "").startsWith("demo-");
+}
+
+function serviceBaseUrl(configured, localPort) {
+  const value = String(configured || "").replace(/\/+$/, "");
+  if (value) {
+    return value;
+  }
+  if (typeof window === "undefined") {
+    return `http://localhost:${localPort}`;
+  }
+  const { protocol, hostname, origin } = window.location;
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `${protocol}//${hostname}:${localPort}`;
+  }
+  return origin;
 }
 
 function canManageMedia(currentUser, item) {
