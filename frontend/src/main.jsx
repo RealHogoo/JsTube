@@ -215,7 +215,7 @@ function App() {
       <header className="topbar">
         <strong>웹하드 미디어</strong>
         <nav>
-          <button className={page === "media" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("media")}>미디어</button>
+          {currentUser?.is_admin && <button className={page === "media" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("media")}>미디어</button>}
           {currentUser?.is_admin && <button className={page === "youtube" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("youtube")}>유튜브 저장</button>}
           {currentUser && <a href={`${WEBHARD_BASE_URL}/preview.html`} target="_blank" rel="noreferrer">웹하드</a>}
           {currentUser && <a href={`${ADMIN_BASE_URL}/`} target="_blank" rel="noreferrer">어드민</a>}
