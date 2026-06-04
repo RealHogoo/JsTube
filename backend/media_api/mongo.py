@@ -25,6 +25,7 @@ def media_collection():
     collection.create_index([("owner_user_id", ASCENDING), ("content_kind", ASCENDING), ("original_created_at", DESCENDING)])
     collection.create_index([("owner_user_id", ASCENDING), ("tags", ASCENDING)])
     collection.create_index([("owner_user_id", ASCENDING), ("album", ASCENDING)])
+    collection.create_index([("owner_is_admin", ASCENDING), ("original_created_at", DESCENDING), ("webhard_file_id", DESCENDING)])
     collection.create_index([("content_kind", ASCENDING), ("original_created_at", DESCENDING), ("webhard_file_id", DESCENDING)])
     collection.create_index([("tags", ASCENDING), ("original_created_at", DESCENDING), ("webhard_file_id", DESCENDING)])
     _media_collection = collection

@@ -236,10 +236,8 @@ def media_list(request: HttpRequest) -> JsonResponse:
 
     limit = min(max(int_param(request, "limit", 40), 1), 100)
     offset = max(int_param(request, "offset", 0), 0)
-    query: dict[str, Any] = {}
-    if not user.is_admin:
-        query["owner_user_id"] = user.user_id
-    elif request.GET.get("owner_user_id"):
+    query: dict[str, Any] = readable_media_query(user)
+    if user.is_admin and request.GET.get("owner_user_id"):
         query["owner_user_id"] = request.GET["owner_user_id"].strip()
 
     content_kind = request.GET.get("content_kind", "").strip().upper()
@@ -306,9 +304,7 @@ def media_detail(request: HttpRequest, webhard_file_id: int) -> JsonResponse | H
     if not isinstance(user, CurrentUser):
         return user
 
-    query: dict[str, Any] = {"webhard_file_id": webhard_file_id}
-    if not user.is_admin:
-        query["owner_user_id"] = user.user_id
+    query: dict[str, Any] = readable_media_query(user, webhard_file_id)
 
     if request.method == "GET":
         item = media_collection().find_one(query)
@@ -453,7 +449,11 @@ def media_file_proxy(request: HttpRequest, webhard_file_id: int, file_kind: str)
     if not isinstance(user, CurrentUser):
         return user
 
-    file = fetch_webhard_file(user, webhard_file_id)
+    item = media_collection().find_one(readable_media_query(user, webhard_file_id))
+    if not item:
+        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "media file not found"}, status=404)
+
+    file = fetch_webhard_file(user, webhard_file_id, allow_public=is_public_media(item))
     if not file:
         return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "media file not found"}, status=404)
 
@@ -493,7 +493,7 @@ def albums(request: HttpRequest) -> JsonResponse:
     user = require_user(request)
     if not isinstance(user, CurrentUser):
         return user
-    query = {} if user.is_admin else {"owner_user_id": user.user_id}
+    query = readable_media_query(user)
     values = [item for item in media_collection().distinct("album", query) if item]
     values.sort()
     return ok({"items": values})
@@ -528,6 +528,7 @@ def media_list_projection() -> dict[str, int]:
         "_id": 1,
         "webhard_file_id": 1,
         "owner_user_id": 1,
+        "owner_is_admin": 1,
         "file_name": 1,
         "display_name": 1,
         "file_size": 1,
@@ -555,6 +556,24 @@ def media_list_projection() -> dict[str, int]:
         "liked": 1,
         "subscribed": 1,
     }
+
+
+def readable_media_query(user: CurrentUser, webhard_file_id: int | None = None) -> dict[str, Any]:
+    query: dict[str, Any] = {}
+    if webhard_file_id is not None:
+        query["webhard_file_id"] = webhard_file_id
+    if user.is_admin:
+        return query
+    query["$or"] = [
+        {"owner_user_id": user.user_id},
+        {"owner_is_admin": True},
+        {"source_type": "YOUTUBE_DOWNLOAD"},
+    ]
+    return query
+
+
+def is_public_media(item: dict[str, Any]) -> bool:
+    return bool(item.get("owner_is_admin")) or item.get("source_type") == "YOUTUBE_DOWNLOAD"
 
 
 def media_counts(collection, query: dict[str, Any]) -> dict[str, int]:

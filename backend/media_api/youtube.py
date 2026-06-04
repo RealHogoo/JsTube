@@ -480,6 +480,7 @@ def apply_youtube_metadata(file_id: int, item: dict[str, Any], playlist_id: str,
         {
             "$set": {
                 "source_type": "YOUTUBE_DOWNLOAD",
+                "owner_is_admin": True,
                 "youtube_video_id": video_id,
                 "youtube_url": item.get("webpage_url") or f"https://www.youtube.com/watch?v={video_id}",
                 "youtube_playlist_id": playlist_id,
