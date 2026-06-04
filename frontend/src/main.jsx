@@ -148,12 +148,6 @@ function App() {
   }
 
   async function patchItem(item, patch) {
-    if (isDemo(item)) {
-      const updated = applyPatchValues(item, patch);
-      setViewerItem(updated);
-      setMessage("예시 데이터는 현재 화면에만 반영됩니다.");
-      return;
-    }
     try {
       const data = await request(`/api/media/${item.webhard_file_id}/`, {
         method: "PATCH",
@@ -169,10 +163,6 @@ function App() {
   }
 
   async function createThumbnail(item) {
-    if (isDemo(item)) {
-      setMessage("예시 데이터는 썸네일을 생성할 수 없습니다.");
-      return;
-    }
     setLoading(true);
     setMessage("썸네일을 생성하는 중입니다.");
     try {
@@ -198,9 +188,7 @@ function App() {
 
   function openViewer(item) {
     setViewerItem(item);
-    if (!isDemo(item)) {
-      patchItem(item, { increment_view: true });
-    }
+    patchItem(item, { increment_view: true });
   }
 
   return (
@@ -666,7 +654,7 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail })
           <aside className="viewer-side">
             <div className="actions side-actions">
               <button className="btn" type="button" onClick={() => setInfoOpen(true)}><Info size={16} /> 파일 정보</button>
-              {canManage && item.content_kind === "VIDEO" && !hasVideoThumbnail(item) && !isDemo(item) && (
+              {canManage && item.content_kind === "VIDEO" && !hasVideoThumbnail(item) && (
                 <button className="btn primary" type="button" onClick={() => onCreateThumbnail(item)}>썸네일 만들기</button>
               )}
               <button className={item.favorite ? "btn primary" : "btn"} type="button" onClick={() => onPatch(item, { favorite: !item.favorite })}>
@@ -758,15 +746,6 @@ function queueStatusLabel(item) {
   return "대기 중";
 }
 
-function applyPatchValues(item, patch) {
-  const updated = { ...item, ...patch };
-  if (patch.liked !== undefined) {
-    const delta = patch.liked && !item.liked ? 1 : (!patch.liked && item.liked ? -1 : 0);
-    updated.like_count = Math.max(Number(item.like_count || 0) + delta, 0);
-  }
-  return updated;
-}
-
 function loginUrl() {
   const returnUrl = typeof window === "undefined" ? "" : window.location.href;
   return `${ADMIN_BASE_URL}/service-login-page.do?service_nm=${encodeURIComponent("Media Service")}&return_url=${encodeURIComponent(returnUrl)}`;
@@ -792,10 +771,6 @@ function postAdminLogout() {
   window.setTimeout(() => form.remove(), 1000);
 }
 
-function isDemo(item) {
-  return String(item?.webhard_file_id || "").startsWith("demo-");
-}
-
 function serviceBaseUrl(configured, localPort) {
   const value = String(configured || "").replace(/\/+$/, "");
   if (value) {
@@ -812,7 +787,7 @@ function serviceBaseUrl(configured, localPort) {
 }
 
 function canManageMedia(currentUser, item) {
-  if (!currentUser || isDemo(item)) return false;
+  if (!currentUser) return false;
   return currentUser.is_admin === true || String(item?.owner_user_id || "") === String(currentUser.user_id || "");
 }
 
