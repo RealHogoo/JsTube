@@ -218,6 +218,16 @@ button {
   color: #fff;
 }
 
+.btn.danger {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
+.btn.danger:hover {
+  background: #b91c1c;
+}
+
 .btn.icon-only {
   width: 38px;
   padding: 0;

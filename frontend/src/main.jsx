@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Download, Heart, Image as ImageIcon, Info, Music, RefreshCw, Search, Star, Tags, Video, X } from "lucide-react";
+import { Download, Heart, Image as ImageIcon, Info, Music, RefreshCw, Search, Star, Tags, Trash2, Video, X } from "lucide-react";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_MEDIA_API_BASE || "";
@@ -181,6 +181,25 @@ function App() {
     }
   }
 
+  async function deleteItem(item) {
+    if (!window.confirm("이 미디어를 웹하드 휴지통으로 이동할까요?")) {
+      return;
+    }
+    setLoading(true);
+    setMessage("미디어를 휴지통으로 이동하는 중입니다.");
+    try {
+      await request(`/api/media/${item.webhard_file_id}/delete/`, { method: "POST", body: "{}" });
+      setItems((prev) => prev.filter((entry) => entry.webhard_file_id !== item.webhard_file_id));
+      setViewerItem(null);
+      setCounts((prev) => decrementCounts(prev, item));
+      setMessage("웹하드 휴지통으로 이동했습니다.");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function submitSearch(event) {
     event.preventDefault();
     load({ reset: true });
@@ -287,6 +306,7 @@ function App() {
           onClose={() => setViewerItem(null)}
           onPatch={patchItem}
           onCreateThumbnail={createThumbnail}
+          onDelete={deleteItem}
         />
       )}
       {loading && <LoadingOverlay message={message} />}
@@ -356,6 +376,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [queueItems, setQueueItems] = useState([]);
+  const [jobId, setJobId] = useState("");
 
   useEffect(() => {
     if (currentUser?.is_admin) {
@@ -372,10 +393,17 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
       try {
         const data = await request("/api/youtube/import/status/", {
           method: "POST",
-          body: JSON.stringify({ youtube_video_ids: ids })
+          body: JSON.stringify({ youtube_video_ids: ids, job_id: jobId })
         });
         if (!stopped) {
           markSavedQueueItems(data.items || []);
+          if (data.job?.status === "DONE") {
+            finishImportJob(data.job.result || {});
+          } else if (data.job?.status === "FAILED") {
+            setImporting(false);
+            setLoading(false);
+            setMessage(data.job.error || data.job.message || "유튜브 저장에 실패했습니다.");
+          }
         }
       } catch {
         // Keep the import request alive; the final result will report failures.
@@ -387,7 +415,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
       stopped = true;
       window.clearInterval(timer);
     };
-  }, [importing, queueItems.length]);
+  }, [importing, queueItems.length, jobId]);
 
   async function checkTools() {
     setLoading(true);
@@ -412,6 +440,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
     setMessage("유튜브 링크를 분석하는 중입니다.");
     setPreview(null);
     setQueueItems([]);
+    setJobId("");
     try {
       const data = await request("/api/youtube/preview/", {
         method: "POST",
@@ -441,19 +470,30 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
         method: "POST",
         body: JSON.stringify({ url, tags: importTags })
       });
-      const savedCount = data.downloaded_count || data.upserted_count || 0;
-      const failedCount = data.failed_count || 0;
-      const firstFailure = (data.results || []).find((item) => item.status === "FAILED");
-      applyFinalImportResults(data.results || []);
-      setMessage(`웹하드 저장 완료: ${data.scanned_count}개 확인, ${savedCount}개 저장, ${failedCount}개 실패${firstFailure?.message ? ` - ${firstFailure.message}` : ""}`);
-      if (savedCount > 0) {
-        onImported(importTags);
+      setJobId(data.job_id || "");
+      if (!data.job_id) {
+        setMessage("유튜브 저장 작업을 시작하지 못했습니다.");
+        setImporting(false);
+        setLoading(false);
       }
     } catch (error) {
       setMessage(error.message);
-    } finally {
       setImporting(false);
       setLoading(false);
+    }
+  }
+
+  function finishImportJob(result) {
+    const savedCount = result.downloaded_count || result.upserted_count || 0;
+    const failedCount = result.failed_count || 0;
+    const firstFailure = (result.results || []).find((item) => item.status === "FAILED");
+    applyFinalImportResults(result.results || []);
+    setMessage(`웹하드 저장 완료: ${result.scanned_count || 0}개 확인, ${savedCount}개 저장, ${failedCount}개 실패${firstFailure?.message ? ` - ${firstFailure.message}` : ""}`);
+    setImporting(false);
+    setLoading(false);
+    setJobId("");
+    if (savedCount > 0) {
+      onImported(splitTags(tags));
     }
   }
 
@@ -607,11 +647,12 @@ function ToolStatus({ status }) {
   );
 }
 
-function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail }) {
+function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, onDelete }) {
   const [editing, setEditing] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [form, setForm] = useState({ title: item.title || "", album: item.album || "", tags: (item.tags || []).join(", "), description: item.description || "" });
   const canManage = canManageMedia(currentUser, item);
+  const canDelete = canDeleteMedia(currentUser, item);
 
   useEffect(() => {
     setForm({ title: item.title || "", album: item.album || "", tags: (item.tags || []).join(", "), description: item.description || "" });
@@ -664,6 +705,11 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail })
                 <Heart size={16} /> {formatCount(item.like_count)}
               </button>
               {item.download_url && <a className="btn" href={item.download_url}><Download size={16} /> 다운로드</a>}
+              {canDelete && (
+                <button className="btn danger" type="button" onClick={() => onDelete(item)}>
+                  <Trash2 size={16} /> 삭제
+                </button>
+              )}
             </div>
 
             {editing ? (
@@ -789,6 +835,16 @@ function serviceBaseUrl(configured, localPort) {
 function canManageMedia(currentUser, item) {
   if (!currentUser) return false;
   return currentUser.is_admin === true || String(item?.owner_user_id || "") === String(currentUser.user_id || "");
+}
+
+function canDeleteMedia(currentUser, item) {
+  if (!canManageMedia(currentUser, item)) return false;
+  return currentUser.is_admin === true || currentUser.permissions?.delete === true;
+}
+
+function decrementCounts(counts, item) {
+  const key = item?.content_kind === "IMAGE" ? "image" : ((item?.tags || []).includes("노래방") ? "karaoke" : "video");
+  return { ...counts, [key]: Math.max(Number(counts[key] || 0) - 1, 0) };
 }
 
 function kindLabel(kind) {
