@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Download, Heart, Image as ImageIcon, Info, Music, RefreshCw, Search, Star, Tags, Video, X } from "lucide-react";
 import "./styles.css";
@@ -7,7 +7,6 @@ const API_BASE = import.meta.env.VITE_MEDIA_API_BASE || "";
 const ADMIN_BASE_URL = serviceBaseUrl(import.meta.env.VITE_ADMIN_BASE_URL, 8081);
 const WEBHARD_BASE_URL = serviceBaseUrl(import.meta.env.VITE_WEBHARD_BASE_URL, 8083);
 const PAGE_SIZE = 30;
-const DEMO_ITEMS = buildDemoItems();
 
 const TABS = [
   { value: "IMAGE", label: "이미지", icon: ImageIcon },
@@ -60,15 +59,8 @@ function App() {
     return () => observer.disconnect();
   }, [hasMore, loading, items.length, activeKind, sort, query, favoriteOnly]);
 
-  const visibleItems = items.length ? items : DEMO_ITEMS.filter((item) => matchesActiveKind(item, activeKind));
-  const displayCounts = useMemo(() => {
-    if (counts.image || counts.video || counts.karaoke || items.length) return counts;
-    return {
-      image: DEMO_ITEMS.filter((item) => item.content_kind === "IMAGE").length,
-      video: DEMO_ITEMS.filter((item) => matchesActiveKind(item, "VIDEO")).length,
-      karaoke: DEMO_ITEMS.filter((item) => matchesActiveKind(item, "KARAOKE")).length
-    };
-  }, [counts, items.length]);
+  const visibleItems = items;
+  const displayCounts = counts;
 
   async function request(path, options = {}) {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -109,7 +101,7 @@ function App() {
         setCounts({ image: 0, video: 0, karaoke: 0 });
         setHasMore(false);
       }
-      setMessage(`${error.message} 예시 데이터를 표시합니다.`);
+      setMessage(error.message);
     } finally {
       setLoading(false);
     }
@@ -365,14 +357,6 @@ function tabCount(counts, tabValue) {
   if (tabValue === "IMAGE") return counts.image || 0;
   if (tabValue === "KARAOKE") return counts.karaoke || 0;
   return counts.video || 0;
-}
-
-function matchesActiveKind(item, activeKind) {
-  const tags = item.tags || [];
-  const isKaraoke = item.content_kind === "VIDEO" && tags.includes("노래방");
-  if (activeKind === "KARAOKE") return isKaraoke;
-  if (activeKind === "VIDEO") return item.content_kind === "VIDEO" && !isKaraoke;
-  return item.content_kind === activeKind;
 }
 
 function YoutubeImportPage({ currentUser, request, onImported }) {
@@ -742,54 +726,6 @@ function FileInfoDialog({ item, onClose }) {
       </section>
     </div>
   );
-}
-
-function buildDemoItems() {
-  const imageTitles = [
-    "현장 점검 사진", "회의 보드 캡처", "장비 설치 기록", "운영 화면 스냅샷", "디자인 참고 이미지", "오류 재현 화면",
-    "배포 체크 이미지", "고객 공유 자료", "시설 점검 사진", "테스트 결과 캡처", "가이드 썸네일", "업무 화면 기록",
-    "시스템 알림 캡처", "관리자 메뉴 이미지", "파일 목록 예시", "권한 설정 화면", "프로젝트 자료 이미지", "리포트 캡처"
-  ];
-  const videoTitles = [
-    "배포 전 기능 확인 영상", "사용자 흐름 녹화", "장애 재현 영상", "운영 교육 녹화", "업로드 테스트 영상", "미리보기 검수 영상",
-    "권한 테스트 녹화", "검색 기능 시연", "관리자 화면 투어", "회의 공유 영상", "다운로드 검수 영상", "모바일 화면 녹화"
-  ];
-  const karaokeTitles = [
-    "KY.12345 노래방 샘플 영상", "KY.54321 최신곡 노래방", "번호 없는 노래방 샘플", "KY.10001 듀엣곡 노래방"
-  ];
-
-  return [
-    ...imageTitles.map((title, index) => demoItem("IMAGE", index + 1, title)),
-    ...videoTitles.map((title, index) => demoItem("VIDEO", index + 1, title)),
-    ...karaokeTitles.map((title, index) => demoItem("VIDEO", index + 101, title, ["노래방", index === 2 ? "0000" : `KY.${title.match(/KY\.(\d+)/)?.[1] || "0000"}`]))
-  ];
-}
-
-function demoItem(kind, index, title, extraTags = []) {
-  const isImage = kind === "IMAGE";
-  const padded = String(index).padStart(2, "0");
-  const day = String(Math.max(1, 28 - index)).padStart(2, "0");
-  return {
-    webhard_file_id: `demo-${kind.toLowerCase()}-${padded}`,
-    title,
-    display_name: title,
-    file_name: `${isImage ? "image" : "video"}-sample-${padded}.${isImage ? "jpg" : "mp4"}`,
-    content_kind: kind,
-    content_type: isImage ? "image/jpeg" : "video/mp4",
-    thumbnail_url: "",
-    content_url: "",
-    download_url: "",
-    owner_user_id: ["ADMIN", "OPS", "PM", "QA"][index % 4],
-    file_size: (isImage ? 420000 : 8400000) + index * (isImage ? 73000 : 920000),
-    view_count: index * (isImage ? 3 : 7),
-    like_count: index % 6,
-    uploaded_at: `2026-05-${day}T${String(8 + (index % 9)).padStart(2, "0")}:00:00`,
-    original_created_at: `2026-05-${day}T${String(7 + (index % 9)).padStart(2, "0")}:30:00`,
-    tags: [isImage ? "이미지" : "영상", index % 2 ? "운영" : "검수", index % 3 ? "웹하드" : "공유", ...extraTags],
-    album: index % 2 ? "운영 자료" : "검수 자료",
-    favorite: index % 5 === 0,
-    description: `${title} 예시 데이터입니다. 실제 웹하드 동기화 데이터가 없을 때 카드 레이아웃 확인용으로 표시됩니다.`
-  };
 }
 
 function mergeItems(current, next) {
