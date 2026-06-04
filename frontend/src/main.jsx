@@ -70,6 +70,10 @@ function App() {
     });
     const contentType = response.headers.get("content-type") || "";
     const body = contentType.includes("application/json") ? await response.json() : { message: `HTTP ${response.status}` };
+    if (isAuthInvalid(response, body)) {
+      redirectToLoginWithAlert();
+      throw new Error(body.message || "로그인 정보가 유효하지 않습니다.");
+    }
     if (!response.ok || body.ok !== true) {
       throw new Error(body.message || "요청에 실패했습니다.");
     }
@@ -884,6 +888,19 @@ function queueStatusLabel(item) {
   if (item.status === "downloading") return "다운로드 중";
   if (item.status === "failed") return "실패";
   return "대기 중";
+}
+
+function isAuthInvalid(response, body) {
+  const code = String(body?.code || "").toUpperCase();
+  return response.status === 401 || code === "UNAUTHORIZED" || code === "AUTH_REQUIRED";
+}
+
+function redirectToLoginWithAlert() {
+  if (typeof window === "undefined") return;
+  if (window.__MEDIA_AUTH_REDIRECTING) return;
+  window.__MEDIA_AUTH_REDIRECTING = true;
+  window.alert("로그인 정보가 유효하지 않습니다. 다시 로그인해 주세요.");
+  window.location.href = loginUrl();
 }
 
 function loginUrl() {
