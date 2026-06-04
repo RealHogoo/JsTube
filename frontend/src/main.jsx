@@ -385,7 +385,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
   }, [currentUser?.is_admin]);
 
   useEffect(() => {
-    if (!importing || !queueItems.length) return undefined;
+    if (!importing || !jobId || !queueItems.length) return undefined;
     let stopped = false;
     const updateQueue = async () => {
       const ids = queueItems.map((item) => item.youtube_video_id).filter(Boolean);
@@ -396,17 +396,17 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
           body: JSON.stringify({ youtube_video_ids: ids, job_id: jobId })
         });
         if (!stopped) {
-          markSavedQueueItems(data.items || []);
-          if (data.job?.status === "DONE") {
+          if (data.job?.items?.length) {
+            updateQueueFromJob(data.job);
+          } else {
+            markSavedQueueItems(data.items || []);
+          }
+          if (isYoutubeJobIdle(data.job)) {
             finishImportJob(data.job.result || {});
-          } else if (data.job?.status === "FAILED") {
-            setImporting(false);
-            setLoading(false);
-            setMessage(data.job.error || data.job.message || "유튜브 저장에 실패했습니다.");
           }
         }
       } catch {
-        // Keep the import request alive; the final result will report failures.
+        // Keep the browser session active while the server-side download continues.
       }
     };
     updateQueue();
@@ -456,30 +456,81 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
     }
   }
 
-  async function save() {
+  async function ensureJob() {
+    if (jobId) return jobId;
     const checked = await checkTools();
-    if (!checked?.ok_to_download) return;
+    if (!checked?.ok_to_download) return "";
     const importTags = splitTags(tags);
     const initialQueue = buildImportQueue(preview?.items || []);
-    setQueueItems(initialQueue.map((item, index) => ({ ...item, status: index === 0 ? "downloading" : "queued" })));
-    setImporting(true);
     setLoading(true);
-    setMessage(`유튜브 영상을 다운로드해서 웹하드에 저장하는 중입니다. 0/${initialQueue.length || preview?.item_count || 0}`);
+    setMessage("유튜브 저장 작업을 생성하는 중입니다.");
     try {
       const data = await request("/api/youtube/import/", {
         method: "POST",
         body: JSON.stringify({ url, tags: importTags })
       });
-      setJobId(data.job_id || "");
-      if (!data.job_id) {
+      const nextJobId = data.job_id || "";
+      if (!nextJobId) {
         setMessage("유튜브 저장 작업을 시작하지 못했습니다.");
-        setImporting(false);
-        setLoading(false);
+        return "";
+      }
+      setJobId(nextJobId);
+      setQueueItems(data.items?.length ? data.items.map(normalizeQueueItem) : initialQueue);
+      setMessage(`${data.item_count || initialQueue.length}개 다운로드 작업이 준비되었습니다.`);
+      return nextJobId;
+    } catch (error) {
+      setMessage(error.message);
+      return "";
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function save() {
+    const nextJobId = await ensureJob();
+    if (!nextJobId) return;
+    setImporting(true);
+    setLoading(true);
+    setQueueItems((current) => current.map((item) => (
+      item.status === "saved" ? item : { ...item, status: "downloading", message: "" }
+    )));
+    setMessage("목록 다운로드를 시작했습니다. 완료 전까지 상태를 계속 확인합니다.");
+    try {
+      const data = await request("/api/youtube/import/start-all/", {
+        method: "POST",
+        body: JSON.stringify({ job_id: nextJobId })
+      });
+      if (data.job?.items?.length) {
+        updateQueueFromJob(data.job);
       }
     } catch (error) {
       setMessage(error.message);
       setImporting(false);
+    } finally {
       setLoading(false);
+    }
+  }
+
+  async function startOne(item) {
+    const nextJobId = await ensureJob();
+    if (!nextJobId) return;
+    setImporting(true);
+    setQueueItems((current) => current.map((entry) => (
+      entry.youtube_video_id === item.youtube_video_id
+        ? { ...entry, status: "downloading", message: "" }
+        : entry
+    )));
+    setMessage(`${item.title || item.youtube_video_id} 다운로드를 시작했습니다.`);
+    try {
+      const data = await request("/api/youtube/import/item/start/", {
+        method: "POST",
+        body: JSON.stringify({ job_id: nextJobId, youtube_video_id: item.youtube_video_id })
+      });
+      if (data.job?.items?.length) {
+        updateQueueFromJob(data.job);
+      }
+    } catch (error) {
+      setMessage(error.message);
     }
   }
 
@@ -491,10 +542,19 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
     setMessage(`웹하드 저장 완료: ${result.scanned_count || 0}개 확인, ${savedCount}개 저장, ${failedCount}개 실패${firstFailure?.message ? ` - ${firstFailure.message}` : ""}`);
     setImporting(false);
     setLoading(false);
-    setJobId("");
     if (savedCount > 0) {
       onImported(splitTags(tags));
     }
+  }
+
+  function updateQueueFromJob(job) {
+    const items = (job.items || []).map(normalizeQueueItem);
+    setQueueItems(items);
+    const savedCount = items.filter((item) => item.status === "saved").length;
+    const failedCount = items.filter((item) => item.status === "failed").length;
+    const runningCount = items.filter((item) => item.status === "downloading").length;
+    const queuedCount = items.filter((item) => item.status === "queued").length;
+    setMessage(`유튜브 저장 진행 중입니다. 저장 ${savedCount}/${items.length}${runningCount ? `, 진행 ${runningCount}` : ""}${queuedCount ? `, 대기 ${queuedCount}` : ""}${failedCount ? `, 실패 ${failedCount}` : ""}`);
   }
 
   function markSavedQueueItems(savedItems) {
@@ -579,7 +639,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
             </label>
             <div className="actions">
               <button className="btn" type="submit" disabled={loading || !url.trim()}>분석</button>
-              <button className="btn primary" type="button" onClick={save} disabled={loading || !preview?.item_count}>다운로드 후 웹하드 저장</button>
+              <button className="btn primary" type="button" onClick={save} disabled={loading || !preview?.item_count}>목록 전체 다운로드 시작</button>
             </div>
           </form>
           {message && <p className="message inline-message">{message}</p>}
@@ -592,7 +652,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
                 <h2>{preview.playlist_title || preview.title || "유튜브 영상"}</h2>
                 <p>{preview.item_count}개 영상</p>
               </div>
-              <button className="btn primary" type="button" onClick={save} disabled={loading}>목록 다운로드 저장</button>
+              <button className="btn primary" type="button" onClick={save} disabled={loading}>전체 시작</button>
             </div>
             <QueueSummary items={queueItems} importing={importing} />
             <div className="youtube-list">
@@ -604,6 +664,16 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
                     <small>{item.channel_name || item.youtube_video_id}</small>
                     <span className={`queue-status ${item.status || "queued"}`}>{queueStatusLabel(item)}</span>
                     {item.message && <em>{item.message}</em>}
+                    <div className="youtube-item-actions">
+                      <button
+                        className="btn compact"
+                        type="button"
+                        onClick={() => startOne(item)}
+                        disabled={loading || item.status === "downloading" || item.status === "saved"}
+                      >
+                        개별 다운로드
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}
@@ -783,6 +853,30 @@ function buildImportQueue(items) {
     status: "queued",
     message: ""
   }));
+}
+
+function normalizeQueueItem(item) {
+  const status = String(item.status || "QUEUED").toUpperCase();
+  let mappedStatus = "queued";
+  if (status === "RUNNING" || status === "DOWNLOADING") mappedStatus = "downloading";
+  if (status === "SAVED" || status === "DOWNLOADED") mappedStatus = "saved";
+  if (status === "FAILED") mappedStatus = "failed";
+  return {
+    youtube_video_id: String(item.youtube_video_id || item.id || ""),
+    title: item.title || item.youtube_video_id || "영상",
+    channel_name: item.channel_name || "",
+    thumbnail_url: item.thumbnail_url || "",
+    status: mappedStatus,
+    webhard_file_id: item.webhard_file_id || item.file_id || "",
+    message: item.message || ""
+  };
+}
+
+function isYoutubeJobIdle(job) {
+  if (!job) return false;
+  const status = String(job.status || "").toUpperCase();
+  if (status === "DONE" || status === "FAILED") return true;
+  return !(job.items || []).some((item) => String(item.status || "").toUpperCase() === "RUNNING");
 }
 
 function queueStatusLabel(item) {

@@ -11,6 +11,8 @@ urlpatterns = [
     path("youtube/tools/check/", views.youtube_tools_check),
     path("youtube/preview/", views.youtube_preview),
     path("youtube/import/status/", views.youtube_import_status),
+    path("youtube/import/item/start/", views.youtube_import_item_start),
+    path("youtube/import/start-all/", views.youtube_import_start_all),
     path("youtube/import/", views.youtube_import_view),
     path("media/", views.media_list),
     path("media/<int:webhard_file_id>/", views.media_detail),

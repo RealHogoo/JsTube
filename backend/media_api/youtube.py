@@ -47,20 +47,9 @@ def import_youtube(url: str, current_user: CurrentUser, token: str, tags: list[s
             skipped += 1
             continue
         try:
-            downloaded_file = download_youtube_video(item)
-            upload = save_to_webhard_storage(downloaded_file, item, current_user)
-            file_id = int(upload.get("file_id") or 0)
-            if file_id <= 0:
-                raise RuntimeError("webhard upload response does not include file_id")
-            sync_one_from_webhard(current_user, file_id)
-            apply_youtube_metadata(file_id, item, playlist_id, playlist_title, base_tags)
+            result = import_youtube_item(item, current_user, base_tags, playlist_id, playlist_title)
             downloaded += 1
-            results.append({
-                "youtube_video_id": video_id,
-                "file_id": file_id,
-                "title": item.get("title") or video_id,
-                "status": "DOWNLOADED",
-            })
+            results.append(result)
         except Exception as exc:
             failed += 1
             results.append({
@@ -69,8 +58,6 @@ def import_youtube(url: str, current_user: CurrentUser, token: str, tags: list[s
                 "status": "FAILED",
                 "message": str(exc)[:500],
             })
-        finally:
-            cleanup_download_dir(video_id)
     if downloaded == 0 and failed > 0:
         first_failure = next((item for item in results if item.get("status") == "FAILED"), {})
         raise RuntimeError(str(first_failure.get("message") or "youtube download failed"))
@@ -83,6 +70,33 @@ def import_youtube(url: str, current_user: CurrentUser, token: str, tags: list[s
         "failed_count": failed,
         "results": results,
     }
+
+def import_youtube_item(
+    item: dict[str, Any],
+    current_user: CurrentUser,
+    tags: list[str],
+    playlist_id: str = "",
+    playlist_title: str = "",
+) -> dict[str, Any]:
+    video_id = str(item.get("youtube_video_id") or "").strip()
+    if not video_id:
+        raise RuntimeError("youtube video id is required")
+    downloaded_file = download_youtube_video(item)
+    try:
+        upload = save_to_webhard_storage(downloaded_file, item, current_user)
+        file_id = int(upload.get("file_id") or 0)
+        if file_id <= 0:
+            raise RuntimeError("webhard upload response does not include file_id")
+        sync_one_from_webhard(current_user, file_id)
+        apply_youtube_metadata(file_id, item, playlist_id, playlist_title, tags)
+        return {
+            "youtube_video_id": video_id,
+            "file_id": file_id,
+            "title": item.get("title") or video_id,
+            "status": "DOWNLOADED",
+        }
+    finally:
+        cleanup_download_dir(video_id)
 
 def check_download_tools() -> dict[str, Any]:
     yt_dlp = check_yt_dlp()

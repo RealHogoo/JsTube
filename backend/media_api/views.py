@@ -18,10 +18,13 @@ from django.views.decorators.csrf import csrf_exempt
 from .auth import CurrentUser, auth_token, require_user
 from .mongo import media_collection, mongo_client
 from .webhard import fetch_webhard_file, sync_from_webhard, sync_one_from_webhard
-from .youtube import check_download_tools, import_youtube, preview_youtube
+from .youtube import check_download_tools, import_youtube_item, preview_youtube
 
-YOUTUBE_IMPORT_JOBS: dict[str, dict[str, Any]] = {}
-YOUTUBE_IMPORT_LOCK = threading.Lock()
+try:
+    YOUTUBE_IMPORT_CONCURRENCY = max(int(os.getenv("YOUTUBE_IMPORT_CONCURRENCY", "1")), 1)
+except ValueError:
+    YOUTUBE_IMPORT_CONCURRENCY = 1
+YOUTUBE_IMPORT_SEMAPHORE = threading.Semaphore(YOUTUBE_IMPORT_CONCURRENCY)
 
 
 def ok(data: dict[str, Any] | list[Any]) -> JsonResponse:
@@ -169,8 +172,61 @@ def youtube_import_view(request: HttpRequest) -> JsonResponse | HttpResponse:
     tool_status = check_download_tools()
     if not tool_status.get("ok_to_download"):
         return JsonResponse({"ok": False, "code": "YOUTUBE_TOOL_CHECK_FAILED", "message": "download environment or webhard check failed", "data": tool_status}, status=422)
-    job_id = start_youtube_import_job(url, user, auth_token(request), normalize_tags(body.get("tags") or ""))
-    return ok({"job_id": job_id, "status": "RUNNING", "message": "youtube import started"})
+    return ok(create_youtube_import_job(url, user, normalize_tags(body.get("tags") or "")))
+
+
+@csrf_exempt
+def youtube_import_item_start(request: HttpRequest) -> JsonResponse | HttpResponse:
+    if request.method == "OPTIONS":
+        return HttpResponse(status=204)
+    if request.method != "POST":
+        return bad_request("POST is required")
+    user = require_user(request)
+    if not isinstance(user, CurrentUser):
+        return user
+    if not user.is_admin:
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "admin permission is required"}, status=403)
+    if not user.has_permission("WRITE"):
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "write permission is required"}, status=403)
+    body = json_body(request)
+    job_id = str(body.get("job_id") or "").strip()
+    video_id = str(body.get("youtube_video_id") or "").strip()
+    if not job_id or not video_id:
+        return bad_request("job_id and youtube_video_id are required")
+    job = youtube_job_collection().find_one({"job_id": job_id, "owner_user_id": user.user_id})
+    if not job:
+        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "youtube import job not found"}, status=404)
+    started = start_youtube_import_item(job, video_id, user)
+    return ok({"job": serialize_youtube_job(started), "message": "youtube item started"})
+
+
+@csrf_exempt
+def youtube_import_start_all(request: HttpRequest) -> JsonResponse | HttpResponse:
+    if request.method == "OPTIONS":
+        return HttpResponse(status=204)
+    if request.method != "POST":
+        return bad_request("POST is required")
+    user = require_user(request)
+    if not isinstance(user, CurrentUser):
+        return user
+    if not user.is_admin:
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "admin permission is required"}, status=403)
+    if not user.has_permission("WRITE"):
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "write permission is required"}, status=403)
+    body = json_body(request)
+    job_id = str(body.get("job_id") or "").strip()
+    if not job_id:
+        return bad_request("job_id is required")
+    job = youtube_job_collection().find_one({"job_id": job_id, "owner_user_id": user.user_id})
+    if not job:
+        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "youtube import job not found"}, status=404)
+    started = 0
+    for item in job.get("items") or []:
+        if item.get("status") in {"QUEUED", "FAILED"}:
+            start_youtube_import_item(job, str(item.get("youtube_video_id") or ""), user)
+            started += 1
+    refreshed = youtube_job_collection().find_one({"job_id": job_id}) or job
+    return ok({"job": serialize_youtube_job(refreshed), "started_count": started})
 
 
 def media_list(request: HttpRequest) -> JsonResponse:
@@ -539,89 +595,246 @@ def media_counts(collection, query: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def start_youtube_import_job(url: str, user: CurrentUser, token: str, tags: list[str]) -> str:
+def youtube_job_collection():
+    db = mongo_client()[settings.MEDIA_CONFIG["MEDIA_MONGO_DATABASE"]]
+    collection = db["youtube_import_jobs"]
+    collection.create_index([("job_id", 1)], unique=True)
+    collection.create_index([("owner_user_id", 1), ("updated_at", -1)])
+    return collection
+
+
+def create_youtube_import_job(url: str, user: CurrentUser, tags: list[str]) -> dict[str, Any]:
+    preview = preview_youtube(url)
     job_id = uuid.uuid4().hex
     now = datetime.utcnow()
-    job = {
+    items = []
+    for index, item in enumerate(preview.get("items") or []):
+        video_id = str(item.get("youtube_video_id") or "").strip()
+        if not video_id:
+            continue
+        items.append({
+            **item,
+            "order_no": index + 1,
+            "status": "QUEUED",
+            "file_id": None,
+            "message": "",
+            "started_at": None,
+            "finished_at": None,
+        })
+    if not items:
+        raise RuntimeError("youtube import items were not found")
+    doc = {
         "job_id": job_id,
         "owner_user_id": user.user_id,
-        "status": "RUNNING",
-        "message": "youtube import started",
-        "result": None,
-        "error": "",
+        "status": "QUEUED",
+        "message": "youtube import job created",
+        "url": url,
+        "tags": tags,
+        "playlist_id": preview.get("playlist_id") or "",
+        "playlist_title": preview.get("playlist_title") or "",
+        "title": preview.get("playlist_title") or preview.get("title") or "",
+        "source_type": "YOUTUBE_DOWNLOAD",
+        "items": items,
+        "item_count": len(items),
+        "started_count": 0,
+        "downloaded_count": 0,
+        "failed_count": 0,
         "created_at": now,
         "updated_at": now,
     }
-    with YOUTUBE_IMPORT_LOCK:
-        cleanup_youtube_import_jobs_locked()
-        YOUTUBE_IMPORT_JOBS[job_id] = job
-    thread = threading.Thread(target=run_youtube_import_job, args=(job_id, url, user, token, tags), daemon=True)
-    thread.start()
-    return job_id
-
-
-def run_youtube_import_job(job_id: str, url: str, user: CurrentUser, token: str, tags: list[str]) -> None:
-    try:
-        result = import_youtube(url, user, token, tags)
-        update_youtube_import_job(job_id, "DONE", "youtube import completed", result=result)
-    except Exception as exc:
-        update_youtube_import_job(job_id, "FAILED", str(exc), error=str(exc))
-
-
-def update_youtube_import_job(
-    job_id: str,
-    status: str,
-    message: str,
-    result: dict[str, Any] | None = None,
-    error: str = "",
-) -> None:
-    with YOUTUBE_IMPORT_LOCK:
-        job = YOUTUBE_IMPORT_JOBS.get(job_id)
-        if not job:
-            return
-        job.update({
-            "status": status,
-            "message": message,
-            "result": result,
-            "error": error,
-            "updated_at": datetime.utcnow(),
-        })
+    youtube_job_collection().insert_one(doc)
+    return serialize_youtube_job(doc)
 
 
 def youtube_import_job(job_id: str, user: CurrentUser) -> dict[str, Any] | None:
     if not job_id:
         return None
-    with YOUTUBE_IMPORT_LOCK:
-        job = YOUTUBE_IMPORT_JOBS.get(job_id)
-        if not job or (not user.is_admin and job.get("owner_user_id") != user.user_id):
-            return None
-        return serialize_youtube_import_job(job)
+    query = {"job_id": job_id}
+    if not user.is_admin:
+        query["owner_user_id"] = user.user_id
+    job = youtube_job_collection().find_one(query)
+    return serialize_youtube_job(job) if job else None
 
 
-def serialize_youtube_import_job(job: dict[str, Any]) -> dict[str, Any]:
-    result = job.get("result") if isinstance(job.get("result"), dict) else None
+def start_youtube_import_item(job: dict[str, Any], video_id: str, user: CurrentUser) -> dict[str, Any]:
+    target = next((item for item in job.get("items") or [] if str(item.get("youtube_video_id") or "") == video_id), None)
+    if not target:
+        raise RuntimeError("youtube import item not found")
+    if target.get("status") in {"RUNNING", "SAVED"}:
+        return job
+    now = datetime.utcnow()
+    youtube_job_collection().update_one(
+        {"job_id": job["job_id"], "items.youtube_video_id": video_id},
+        {
+            "$set": {
+                "status": "RUNNING",
+                "message": "youtube import running",
+                "updated_at": now,
+                "items.$.status": "RUNNING",
+                "items.$.message": "download started",
+                "items.$.started_at": now,
+                "items.$.finished_at": None,
+            }
+        },
+    )
+    thread = threading.Thread(target=run_youtube_import_item, args=(job["job_id"], video_id, user), daemon=True)
+    thread.start()
+    return youtube_job_collection().find_one({"job_id": job["job_id"]}) or job
+
+
+def run_youtube_import_item(job_id: str, video_id: str, user: CurrentUser) -> None:
+    with YOUTUBE_IMPORT_SEMAPHORE:
+        job = youtube_job_collection().find_one({"job_id": job_id})
+        if not job:
+            return
+        item = next((entry for entry in job.get("items") or [] if str(entry.get("youtube_video_id") or "") == video_id), None)
+        if not item:
+            return
+        try:
+            result = import_youtube_item(
+                item,
+                user,
+                normalize_import_tags(job.get("tags") or []),
+                str(job.get("playlist_id") or ""),
+                str(job.get("playlist_title") or ""),
+            )
+            update_youtube_import_item(job_id, video_id, "SAVED", "saved", result.get("file_id"), result)
+        except Exception as exc:
+            update_youtube_import_item(job_id, video_id, "FAILED", str(exc)[:500], None, None)
+
+
+def update_youtube_import_item(
+    job_id: str,
+    video_id: str,
+    status: str,
+    message: str,
+    file_id: int | None,
+    result: dict[str, Any] | None,
+) -> None:
+    now = datetime.utcnow()
+    update = {
+        "updated_at": now,
+        "items.$.status": status,
+        "items.$.message": message,
+        "items.$.file_id": file_id,
+        "items.$.finished_at": now,
+    }
+    if result:
+        update["items.$.result"] = result
+    youtube_job_collection().update_one(
+        {"job_id": job_id, "items.youtube_video_id": video_id},
+        {"$set": update},
+    )
+    refresh_youtube_job_status(job_id)
+
+
+def refresh_youtube_job_status(job_id: str) -> None:
+    job = youtube_job_collection().find_one({"job_id": job_id})
+    if not job:
+        return
+    items = job.get("items") or []
+    saved = sum(1 for item in items if item.get("status") == "SAVED")
+    failed = sum(1 for item in items if item.get("status") == "FAILED")
+    running = sum(1 for item in items if item.get("status") == "RUNNING")
+    queued = sum(1 for item in items if item.get("status") == "QUEUED")
+    if running > 0:
+        status = "RUNNING"
+    elif queued > 0 and saved + failed == 0:
+        status = "QUEUED"
+    elif queued > 0:
+        status = "PARTIAL"
+    elif failed > 0 and saved == 0:
+        status = "FAILED"
+    elif failed > 0:
+        status = "PARTIAL"
+    else:
+        status = "DONE"
+    youtube_job_collection().update_one(
+        {"job_id": job_id},
+        {
+            "$set": {
+                "status": status,
+                "message": youtube_job_message(status, saved, failed, queued, running),
+                "downloaded_count": saved,
+                "failed_count": failed,
+                "started_count": saved + failed + running,
+                "updated_at": datetime.utcnow(),
+            }
+        },
+    )
+
+
+def youtube_job_message(status: str, saved: int, failed: int, queued: int, running: int) -> str:
+    if status == "DONE":
+        return "youtube import completed"
+    if status == "FAILED":
+        return "youtube import failed"
+    return f"saved {saved}, failed {failed}, running {running}, queued {queued}"
+
+
+def serialize_youtube_job(job: dict[str, Any] | None) -> dict[str, Any]:
+    if not job:
+        return {}
+    items = [serialize_youtube_job_item(item) for item in job.get("items") or []]
     return {
         "job_id": job.get("job_id"),
         "status": job.get("status"),
         "message": job.get("message"),
-        "error": job.get("error") or "",
-        "result": result,
+        "title": job.get("title") or "",
+        "playlist_id": job.get("playlist_id") or "",
+        "playlist_title": job.get("playlist_title") or "",
+        "item_count": int(job.get("item_count") or len(items)),
+        "downloaded_count": int(job.get("downloaded_count") or 0),
+        "failed_count": int(job.get("failed_count") or 0),
+        "items": items,
+        "result": youtube_job_result(job, items),
         "created_at": job.get("created_at").isoformat() if isinstance(job.get("created_at"), datetime) else "",
         "updated_at": job.get("updated_at").isoformat() if isinstance(job.get("updated_at"), datetime) else "",
     }
 
 
-def cleanup_youtube_import_jobs_locked() -> None:
-    if len(YOUTUBE_IMPORT_JOBS) <= 100:
-        return
-    finished = [
-        (job_id, job)
-        for job_id, job in YOUTUBE_IMPORT_JOBS.items()
-        if job.get("status") in {"DONE", "FAILED"}
-    ]
-    finished.sort(key=lambda item: item[1].get("updated_at") or datetime.min)
-    for job_id, _job in finished[:50]:
-        YOUTUBE_IMPORT_JOBS.pop(job_id, None)
+def serialize_youtube_job_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "youtube_video_id": item.get("youtube_video_id") or "",
+        "title": item.get("title") or item.get("youtube_video_id") or "",
+        "thumbnail_url": item.get("thumbnail_url") or "",
+        "duration": item.get("duration"),
+        "channel_name": item.get("channel_name") or "",
+        "status": item.get("status") or "QUEUED",
+        "file_id": item.get("file_id"),
+        "webhard_file_id": item.get("file_id"),
+        "message": item.get("message") or "",
+    }
+
+
+def youtube_job_result(job: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
+    results = []
+    for item in items:
+        if item.get("status") == "SAVED":
+            results.append({
+                "youtube_video_id": item.get("youtube_video_id"),
+                "file_id": item.get("file_id"),
+                "title": item.get("title"),
+                "status": "DOWNLOADED",
+            })
+        elif item.get("status") == "FAILED":
+            results.append({
+                "youtube_video_id": item.get("youtube_video_id"),
+                "title": item.get("title"),
+                "status": "FAILED",
+                "message": item.get("message") or "저장 실패",
+            })
+    downloaded = sum(1 for item in items if item.get("status") == "SAVED")
+    failed = sum(1 for item in items if item.get("status") == "FAILED")
+    return {
+        "source_type": "YOUTUBE_DOWNLOAD",
+        "scanned_count": int(job.get("item_count") or len(items)),
+        "downloaded_count": downloaded,
+        "upserted_count": downloaded,
+        "skipped_count": 0,
+        "failed_count": failed,
+        "results": results,
+    }
 
 
 def can_manage_media(user: CurrentUser, item: dict[str, Any]) -> bool:
@@ -678,6 +891,14 @@ def normalize_tags(value: Any) -> list[str]:
         if tag and tag not in result:
             result.append(tag[:40])
     return result[:30]
+
+
+def normalize_import_tags(value: Any) -> list[str]:
+    tags = ["youtube"]
+    for tag in normalize_tags(value):
+        if tag not in tags:
+            tags.append(tag)
+    return tags[:30]
 
 
 def is_youtube_url(value: str) -> bool:

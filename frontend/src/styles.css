@@ -233,6 +233,12 @@ button {
   padding: 0;
 }
 
+.btn.compact {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -798,6 +804,13 @@ label {
 .youtube-item small {
   margin-top: 6px;
   color: #64748b;
+}
+
+.youtube-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .queue-status {
