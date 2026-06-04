@@ -76,7 +76,8 @@ function App() {
       headers: { "Content-Type": "application/json", ...(options.headers || {}) },
       ...options
     });
-    const body = await response.json();
+    const contentType = response.headers.get("content-type") || "";
+    const body = contentType.includes("application/json") ? await response.json() : { message: `HTTP ${response.status}` };
     if (!response.ok || body.ok !== true) {
       throw new Error(body.message || "요청에 실패했습니다.");
     }
@@ -381,12 +382,40 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
   const [toolStatus, setToolStatus] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [queueItems, setQueueItems] = useState([]);
 
   useEffect(() => {
     if (currentUser?.is_admin) {
       checkTools();
     }
   }, [currentUser?.is_admin]);
+
+  useEffect(() => {
+    if (!importing || !queueItems.length) return undefined;
+    let stopped = false;
+    const updateQueue = async () => {
+      const ids = queueItems.map((item) => item.youtube_video_id).filter(Boolean);
+      if (!ids.length) return;
+      try {
+        const data = await request("/api/youtube/import/status/", {
+          method: "POST",
+          body: JSON.stringify({ youtube_video_ids: ids })
+        });
+        if (!stopped) {
+          markSavedQueueItems(data.items || []);
+        }
+      } catch {
+        // Keep the import request alive; the final result will report failures.
+      }
+    };
+    updateQueue();
+    const timer = window.setInterval(updateQueue, 3000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [importing, queueItems.length]);
 
   async function checkTools() {
     setLoading(true);
@@ -410,12 +439,14 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
     setLoading(true);
     setMessage("유튜브 링크를 분석하는 중입니다.");
     setPreview(null);
+    setQueueItems([]);
     try {
       const data = await request("/api/youtube/preview/", {
         method: "POST",
         body: JSON.stringify({ url })
       });
       setPreview(data);
+      setQueueItems(buildImportQueue(data.items || []));
       setMessage(`${data.item_count || 0}개 영상을 찾았습니다.`);
     } catch (error) {
       setMessage(error.message);
@@ -428,8 +459,11 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
     const checked = await checkTools();
     if (!checked?.ok_to_download) return;
     const importTags = splitTags(tags);
+    const initialQueue = buildImportQueue(preview?.items || []);
+    setQueueItems(initialQueue.map((item, index) => ({ ...item, status: index === 0 ? "downloading" : "queued" })));
+    setImporting(true);
     setLoading(true);
-    setMessage("유튜브 영상을 다운로드해서 웹하드에 저장하는 중입니다.");
+    setMessage(`유튜브 영상을 다운로드해서 웹하드에 저장하는 중입니다. 0/${initialQueue.length || preview?.item_count || 0}`);
     try {
       const data = await request("/api/youtube/import/", {
         method: "POST",
@@ -438,6 +472,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
       const savedCount = data.downloaded_count || data.upserted_count || 0;
       const failedCount = data.failed_count || 0;
       const firstFailure = (data.results || []).find((item) => item.status === "FAILED");
+      applyFinalImportResults(data.results || []);
       setMessage(`웹하드 저장 완료: ${data.scanned_count}개 확인, ${savedCount}개 저장, ${failedCount}개 실패${firstFailure?.message ? ` - ${firstFailure.message}` : ""}`);
       if (savedCount > 0) {
         onImported(importTags);
@@ -445,8 +480,48 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
     } catch (error) {
       setMessage(error.message);
     } finally {
+      setImporting(false);
       setLoading(false);
     }
+  }
+
+  function markSavedQueueItems(savedItems) {
+    setQueueItems((current) => {
+      const savedById = new Map(savedItems.map((item) => [String(item.youtube_video_id || ""), item]));
+      let firstPendingMarked = false;
+      const next = current.map((item) => {
+        const saved = savedById.get(String(item.youtube_video_id || ""));
+        if (saved) {
+          return { ...item, status: "saved", webhard_file_id: saved.webhard_file_id };
+        }
+        if (item.status === "failed") return item;
+        if (!firstPendingMarked) {
+          firstPendingMarked = true;
+          return { ...item, status: "downloading" };
+        }
+        return { ...item, status: "queued" };
+      });
+      const savedCount = next.filter((item) => item.status === "saved").length;
+      const failedCount = next.filter((item) => item.status === "failed").length;
+      setMessage(`유튜브 영상을 다운로드해서 웹하드에 저장하는 중입니다. ${savedCount}/${next.length} 저장${failedCount ? `, ${failedCount} 실패` : ""}`);
+      return next;
+    });
+  }
+
+  function applyFinalImportResults(results) {
+    if (!results.length) return;
+    const resultById = new Map(results.map((item) => [String(item.youtube_video_id || ""), item]));
+    setQueueItems((current) => current.map((item) => {
+      const result = resultById.get(String(item.youtube_video_id || ""));
+      if (!result) return item;
+      if (result.status === "DOWNLOADED") {
+        return { ...item, status: "saved", webhard_file_id: result.file_id };
+      }
+      if (result.status === "FAILED") {
+        return { ...item, status: "failed", message: result.message || "저장 실패" };
+      }
+      return item;
+    }));
   }
 
   if (!currentUser?.is_admin) {
@@ -507,13 +582,16 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
               </div>
               <button className="btn primary" type="button" onClick={save} disabled={loading}>목록 다운로드 저장</button>
             </div>
+            <QueueSummary items={queueItems} importing={importing} />
             <div className="youtube-list">
-              {(preview.items || []).map((item) => (
-                <article className="youtube-item" key={item.youtube_video_id}>
+              {(queueItems.length ? queueItems : buildImportQueue(preview.items || [])).map((item) => (
+                <article className={`youtube-item ${item.status || "queued"}`} key={item.youtube_video_id}>
                   {item.thumbnail_url ? <img src={item.thumbnail_url} alt="" /> : <div className="youtube-thumb-empty">썸네일 없음</div>}
                   <div>
                     <strong>{item.title}</strong>
                     <small>{item.channel_name || item.youtube_video_id}</small>
+                    <span className={`queue-status ${item.status || "queued"}`}>{queueStatusLabel(item)}</span>
+                    {item.message && <em>{item.message}</em>}
                   </div>
                 </article>
               ))}
@@ -521,8 +599,22 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
           </section>
         )}
       </main>
-      {loading && <LoadingOverlay message={message} />}
+      {loading && !importing && <LoadingOverlay message={message} />}
     </>
+  );
+}
+
+function QueueSummary({ items, importing }) {
+  if (!items.length) return null;
+  const saved = items.filter((item) => item.status === "saved").length;
+  const failed = items.filter((item) => item.status === "failed").length;
+  const active = items.some((item) => item.status === "downloading");
+  return (
+    <div className="queue-summary" aria-live="polite">
+      <strong>{saved}/{items.length}</strong>
+      <span>{failed ? `${failed}개 실패` : importing || active ? "저장 진행 중" : "저장 대기"}</span>
+      <progress max={items.length} value={saved + failed} />
+    </div>
   );
 }
 
@@ -710,6 +802,24 @@ function splitTags(value) {
     .split(",")
     .map((tag) => tag.trim())
     .filter(Boolean);
+}
+
+function buildImportQueue(items) {
+  return (items || []).map((item, index) => ({
+    youtube_video_id: String(item.youtube_video_id || item.id || index),
+    title: item.title || item.youtube_video_id || `영상 ${index + 1}`,
+    channel_name: item.channel_name || "",
+    thumbnail_url: item.thumbnail_url || "",
+    status: "queued",
+    message: ""
+  }));
+}
+
+function queueStatusLabel(item) {
+  if (item.status === "saved") return "저장 완료";
+  if (item.status === "downloading") return "다운로드 중";
+  if (item.status === "failed") return "실패";
+  return "대기 중";
 }
 
 function applyPatchValues(item, patch) {

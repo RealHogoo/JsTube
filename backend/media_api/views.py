@@ -112,6 +112,38 @@ def youtube_tools_check(request: HttpRequest) -> JsonResponse | HttpResponse:
 
 
 @csrf_exempt
+def youtube_import_status(request: HttpRequest) -> JsonResponse | HttpResponse:
+    if request.method == "OPTIONS":
+        return HttpResponse(status=204)
+    if request.method != "POST":
+        return bad_request("POST is required")
+    user = require_user(request)
+    if not isinstance(user, CurrentUser):
+        return user
+    if not user.is_admin:
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "admin permission is required"}, status=403)
+    body = json_body(request)
+    raw_ids = body.get("youtube_video_ids") or []
+    if not isinstance(raw_ids, list):
+        return bad_request("youtube_video_ids must be a list")
+    video_ids = []
+    for item in raw_ids:
+        video_id = str(item or "").strip()
+        if video_id and video_id not in video_ids:
+            video_ids.append(video_id[:80])
+    if not video_ids:
+        return ok({"items": [], "saved_count": 0})
+    query: dict[str, Any] = {
+        "source_type": "YOUTUBE_DOWNLOAD",
+        "youtube_video_id": {"$in": video_ids[:200]},
+    }
+    if not user.is_admin:
+        query["owner_user_id"] = user.user_id
+    items = [serialize_media(item) for item in media_collection().find(query, media_list_projection()).limit(200)]
+    return ok({"items": items, "saved_count": len(items)})
+
+
+@csrf_exempt
 def youtube_import_view(request: HttpRequest) -> JsonResponse | HttpResponse:
     if request.method == "OPTIONS":
         return HttpResponse(status=204)
