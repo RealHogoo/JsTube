@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Clock, Download, Heart, Image as ImageIcon, Info, Music, RefreshCw, Search, SkipForward, Star, Tags, Trash2, Video, X } from "lucide-react";
+import { Clock, Download, Heart, Image as ImageIcon, Info, ListMusic, Music, Pause, Play, Plus, RefreshCw, Search, SkipBack, SkipForward, Star, Tags, Trash2, Video, X } from "lucide-react";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_MEDIA_API_BASE || "";
@@ -221,6 +221,7 @@ function App() {
         <strong>웹하드 미디어</strong>
         <nav>
           {currentUser?.is_admin && <button className={page === "media" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("media")}>미디어</button>}
+          {currentUser && <button className={page === "karaoke" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("karaoke")}>노래방</button>}
           {currentUser?.is_admin && <button className={page === "youtube" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("youtube")}>유튜브 저장</button>}
           {currentUser && <a href={`${WEBHARD_BASE_URL}/preview.html`} target="_blank" rel="noreferrer">웹하드</a>}
           {currentUser && <a href={`${ADMIN_BASE_URL}/`} target="_blank" rel="noreferrer">어드민</a>}
@@ -230,7 +231,9 @@ function App() {
         </nav>
       </header>
 
-      {page === "youtube" ? (
+      {page === "karaoke" ? (
+        <KaraokePage request={request} />
+      ) : page === "youtube" ? (
         <YoutubeImportPage
           currentUser={currentUser}
           request={request}
@@ -370,6 +373,360 @@ function tabCount(counts, tabValue) {
   if (tabValue === "IMAGE") return counts.image || 0;
   if (tabValue === "KARAOKE") return counts.karaoke || 0;
   return counts.video || 0;
+}
+
+function KaraokePage({ request }) {
+  const [items, setItems] = useState([]);
+  const [query, setQuery] = useState("");
+  const [quickNumber, setQuickNumber] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [queue, setQueue] = useState([]);
+  const [currentItem, setCurrentItem] = useState(null);
+  const [currentVideoTime, setCurrentVideoTime] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [playing, setPlaying] = useState(false);
+  const shellRef = useRef(null);
+  const videoRef = useRef(null);
+  const listRef = useRef(null);
+  const timeTags = parseTimeTags(currentItem?.tags || []);
+  const activeTimeIndex = activeTimeTagIndex(timeTags, currentVideoTime);
+
+  useEffect(() => {
+    shellRef.current?.focus();
+    loadKaraoke("");
+  }, []);
+
+  useEffect(() => {
+    const handler = (event) => {
+      const target = event.target;
+      const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
+      const isNativeAction = target?.tagName === "BUTTON" || target?.tagName === "A" || target?.tagName === "SELECT";
+      if (isTyping && event.key !== "Escape") {
+        return;
+      }
+      if (/^\d$/.test(event.key)) {
+        event.preventDefault();
+        setQuickNumber((value) => `${value}${event.key}`.slice(0, 6));
+        return;
+      }
+      if (event.key === "Backspace" && quickNumber) {
+        event.preventDefault();
+        setQuickNumber((value) => value.slice(0, -1));
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        moveSelection(-2);
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        moveSelection(2);
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        moveSelection(-1);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        moveSelection(1);
+        return;
+      }
+      if (event.key === "Enter") {
+        if (isNativeAction) {
+          return;
+        }
+        event.preventDefault();
+        if (quickNumber) {
+          searchQuickNumber();
+        } else if (items[selectedIndex]) {
+          playNow(items[selectedIndex]);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (quickNumber) {
+          setQuickNumber("");
+        } else {
+          setQuery("");
+          loadKaraoke("");
+        }
+        return;
+      }
+      if (event.key === "MediaPlayPause") {
+        event.preventDefault();
+        togglePlay();
+        return;
+      }
+      if (event.key === "MediaTrackNext") {
+        event.preventDefault();
+        playNextSong();
+        return;
+      }
+      if (event.key === "MediaTrackPrevious") {
+        event.preventDefault();
+        seekPreviousTimeTag();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [items, selectedIndex, quickNumber, queue, currentItem, currentVideoTime]);
+
+  useEffect(() => {
+    const selected = listRef.current?.querySelector(`[data-karaoke-index="${selectedIndex}"]`);
+    selected?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [selectedIndex]);
+
+  async function loadKaraoke(nextQuery = query) {
+    setLoading(true);
+    setMessage("노래방 목록을 불러오는 중입니다.");
+    try {
+      const params = new URLSearchParams({
+        content_kind: "KARAOKE",
+        limit: "80",
+        offset: "0",
+        sort: "recent"
+      });
+      if (nextQuery.trim()) params.set("q", normalizeKaraokeQuery(nextQuery));
+      const data = await request(`/api/media/?${params.toString()}`);
+      const nextItems = data.items || [];
+      setItems(nextItems);
+      setSelectedIndex(0);
+      setMessage(nextItems.length ? "" : "조건에 맞는 노래방 영상이 없습니다.");
+    } catch (error) {
+      setItems([]);
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function submitSearch(event) {
+    event.preventDefault();
+    setQuickNumber("");
+    loadKaraoke(query);
+  }
+
+  function searchQuickNumber() {
+    if (!quickNumber) return;
+    const nextQuery = `KY.${quickNumber}`;
+    setQuery(nextQuery);
+    loadKaraoke(nextQuery);
+  }
+
+  function pressKeypad(value) {
+    if (value === "clear") {
+      setQuickNumber("");
+      return;
+    }
+    if (value === "back") {
+      setQuickNumber((current) => current.slice(0, -1));
+      return;
+    }
+    setQuickNumber((current) => `${current}${value}`.slice(0, 6));
+  }
+
+  function moveSelection(delta) {
+    setSelectedIndex((current) => {
+      if (!items.length) return 0;
+      return Math.min(Math.max(current + delta, 0), items.length - 1);
+    });
+  }
+
+  function playNow(item) {
+    setCurrentItem(item);
+    setCurrentVideoTime(0);
+    setPlaying(true);
+    window.setTimeout(() => videoRef.current?.play().catch(() => undefined), 0);
+  }
+
+  function reserve(item) {
+    setQueue((current) => current.some((entry) => entry.webhard_file_id === item.webhard_file_id) ? current : current.concat(item));
+    setMessage(`${item.title || item.display_name || item.file_name} 예약했습니다.`);
+  }
+
+  function removeReserved(item) {
+    setQueue((current) => current.filter((entry) => entry.webhard_file_id !== item.webhard_file_id));
+  }
+
+  function togglePlay() {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      video.play().catch(() => undefined);
+      setPlaying(true);
+    } else {
+      video.pause();
+      setPlaying(false);
+    }
+  }
+
+  function playNextSong() {
+    const [next, ...rest] = queue;
+    if (!next) {
+      setMessage("예약된 다음 곡이 없습니다.");
+      return;
+    }
+    setQueue(rest);
+    playNow(next);
+  }
+
+  function seekToTimeTag(seconds) {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = seconds;
+    video.play().catch(() => undefined);
+    setPlaying(true);
+  }
+
+  function seekNextTimeTag() {
+    if (!timeTags.length) return;
+    const currentTime = videoRef.current?.currentTime || 0;
+    const next = timeTags.find((entry) => entry.seconds > currentTime + 0.35) || timeTags[0];
+    seekToTimeTag(next.seconds);
+  }
+
+  function seekPreviousTimeTag() {
+    if (!timeTags.length) return;
+    const currentTime = videoRef.current?.currentTime || 0;
+    const previous = [...timeTags].reverse().find((entry) => entry.seconds < currentTime - 0.7) || timeTags[0];
+    seekToTimeTag(previous.seconds);
+  }
+
+  return (
+    <main className="karaoke-shell" ref={shellRef} tabIndex={-1}>
+      <section className="karaoke-search-panel">
+        <div>
+          <span className="kind-badge">노래방 모드</span>
+          <h1>리모컨으로 고르고 예약하기</h1>
+          <p>방향키로 이동, Enter로 바로 재생, 숫자키로 KY번호를 빠르게 검색합니다.</p>
+        </div>
+        <form className="karaoke-search" onSubmit={submitSearch}>
+          <label>
+            노래 검색
+            <span className="search-input-wrap">
+              <Search size={18} />
+              <input className="input karaoke-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="제목, 가수, KY.12345, 태그" />
+            </span>
+          </label>
+          <button className="btn primary karaoke-action" type="submit" disabled={loading}>검색</button>
+          <button className="btn karaoke-action" type="button" onClick={() => { setQuery(""); setQuickNumber(""); loadKaraoke(""); }} disabled={loading}>초기화</button>
+        </form>
+      </section>
+
+      <section className="karaoke-grid">
+        <div className="karaoke-list-panel">
+          <div className="karaoke-list-head">
+            <strong>곡 목록</strong>
+            <span>{items.length}곡</span>
+          </div>
+          <div className="karaoke-list" ref={listRef}>
+            {items.map((item, index) => (
+              <article className={index === selectedIndex ? "karaoke-card active" : "karaoke-card"} data-karaoke-index={index} key={item.webhard_file_id}>
+                <button className="karaoke-card-main" type="button" onClick={() => setSelectedIndex(index)} onDoubleClick={() => playNow(item)}>
+                  <span className="karaoke-number">{karaokeNumber(item) || String(index + 1).padStart(2, "0")}</span>
+                  <span>
+                    <strong>{item.title || item.display_name || item.file_name}</strong>
+                    <small>{karaokeArtist(item)}</small>
+                  </span>
+                </button>
+                <div className="karaoke-card-actions">
+                  <button className="btn primary" type="button" onClick={() => playNow(item)}><Play size={16} /> 재생</button>
+                  <button className="btn" type="button" onClick={() => reserve(item)}><Plus size={16} /> 예약</button>
+                </div>
+              </article>
+            ))}
+            {!items.length && !loading && <div className="karaoke-empty">검색 결과가 없습니다.</div>}
+          </div>
+        </div>
+
+        <div className="karaoke-stage">
+          <section className="karaoke-player-panel">
+            <div className="karaoke-player">
+              {currentItem?.content_url ? (
+                <video
+                  ref={videoRef}
+                  src={currentItem.content_url}
+                  poster={hasVideoThumbnail(currentItem) ? currentItem.thumbnail_url : undefined}
+                  preload="metadata"
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onEnded={playNextSong}
+                  onTimeUpdate={(event) => setCurrentVideoTime(event.currentTarget.currentTime)}
+                />
+              ) : (
+                <div className="karaoke-standby">
+                  <Music size={54} />
+                  <strong>곡을 선택하세요</strong>
+                  <span>리모컨 방향키로 곡을 고르고 Enter를 누르면 재생됩니다.</span>
+                </div>
+              )}
+            </div>
+            <div className="karaoke-now">
+              <strong>{currentItem ? (currentItem.title || currentItem.display_name || currentItem.file_name) : "재생 대기"}</strong>
+              <span>{currentItem ? karaokeArtist(currentItem) : "예약 목록에서 다음 곡을 이어서 재생합니다."}</span>
+            </div>
+            <div className="karaoke-controls">
+              <button className="karaoke-control" type="button" onClick={seekPreviousTimeTag} disabled={!timeTags.length}><SkipBack size={20} /> 이전태그</button>
+              <button className="karaoke-control primary" type="button" onClick={togglePlay} disabled={!currentItem}>{playing ? <Pause size={20} /> : <Play size={20} />} {playing ? "일시정지" : "재생"}</button>
+              <button className="karaoke-control" type="button" onClick={seekNextTimeTag} disabled={!timeTags.length}><SkipForward size={20} /> 간주점프</button>
+              <button className="karaoke-control" type="button" onClick={playNextSong} disabled={!queue.length}><ListMusic size={20} /> 다음곡</button>
+            </div>
+            {timeTags.length > 0 && (
+              <div className="karaoke-time-tags">
+                {timeTags.map((entry, index) => (
+                  <button className={index === activeTimeIndex ? "active" : ""} type="button" key={`${entry.seconds}-${entry.raw}`} onClick={() => seekToTimeTag(entry.seconds)}>
+                    <strong>{formatMediaTime(entry.seconds)}</strong>
+                    <span>{entry.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="karaoke-side-panel">
+            <div className="quick-number">
+              <strong>KY번호 빠른 입력</strong>
+              <div className="quick-number-display">{quickNumber || "숫자키 입력"}</div>
+              <div className="quick-keypad">
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((value) => <button type="button" key={value} onClick={() => pressKeypad(value)}>{value}</button>)}
+                <button type="button" onClick={() => pressKeypad("back")}>←</button>
+                <button type="button" onClick={() => pressKeypad("0")}>0</button>
+                <button type="button" onClick={() => pressKeypad("clear")}>C</button>
+              </div>
+              <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
+            </div>
+
+            <div className="reservation-panel">
+              <div className="karaoke-list-head">
+                <strong>예약 목록</strong>
+                <span>{queue.length}곡</span>
+              </div>
+              <div className="reservation-list">
+                {queue.map((item, index) => (
+                  <article key={item.webhard_file_id}>
+                    <span>{index + 1}</span>
+                    <div>
+                      <strong>{item.title || item.display_name || item.file_name}</strong>
+                      <small>{karaokeArtist(item)}</small>
+                    </div>
+                    <button className="btn icon-only" type="button" onClick={() => removeReserved(item)} aria-label="예약 삭제"><Trash2 size={16} /></button>
+                  </article>
+                ))}
+                {!queue.length && <p>예약된 곡이 없습니다.</p>}
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      {message && <p className="message karaoke-message">{message}</p>}
+    </main>
+  );
 }
 
 function YoutubeImportPage({ currentUser, request, onImported }) {
@@ -1059,6 +1416,30 @@ function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString("ko-KR", { hour12: false });
+}
+
+function normalizeKaraokeQuery(value) {
+  const text = String(value || "").trim();
+  const numberMatch = text.match(/^(?:KY\.?|ky\.?)?(\d{3,6})$/);
+  if (numberMatch) {
+    return `KY.${numberMatch[1]}`;
+  }
+  return text;
+}
+
+function karaokeNumber(item) {
+  const tags = item?.tags || [];
+  for (const tag of tags) {
+    const match = String(tag || "").match(/KY\.?(\d{3,6})/i);
+    if (match) return `KY.${match[1]}`;
+  }
+  const text = `${item?.title || ""} ${item?.display_name || ""} ${item?.file_name || ""}`;
+  const match = text.match(/KY\.?(\d{3,6})/i);
+  return match ? `KY.${match[1]}` : "";
+}
+
+function karaokeArtist(item) {
+  return item?.channel_name || item?.album || (item?.tags || []).filter((tag) => !/^KY\.?\d+/i.test(String(tag)) && !String(tag).includes(":")).slice(0, 2).join(", ") || "가수 정보 없음";
 }
 
 function parseTimeInput(value) {

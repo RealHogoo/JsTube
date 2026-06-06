@@ -478,6 +478,363 @@ label {
   font-weight: 700;
 }
 
+.karaoke-shell {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 1540px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.karaoke-shell:focus {
+  outline: none;
+}
+
+.karaoke-search-panel,
+.karaoke-list-panel,
+.karaoke-player-panel,
+.karaoke-side-panel {
+  border: 1px solid #1f2937;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+}
+
+.karaoke-search-panel {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(360px, 640px);
+  gap: 18px;
+  align-items: end;
+  padding: 20px;
+}
+
+.karaoke-search-panel h1 {
+  margin: 8px 0 6px;
+  font-size: clamp(26px, 3vw, 42px);
+}
+
+.karaoke-search-panel p {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 16px;
+}
+
+.karaoke-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.karaoke-search label {
+  color: #e5e7eb;
+  font-weight: 900;
+}
+
+.karaoke-input {
+  min-height: 56px;
+  font-size: 20px;
+}
+
+.karaoke-action {
+  min-height: 56px;
+  padding-inline: 20px;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.karaoke-action.full {
+  width: 100%;
+}
+
+.karaoke-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(560px, 1.55fr);
+  gap: 16px;
+}
+
+.karaoke-list-panel,
+.karaoke-player-panel,
+.karaoke-side-panel {
+  padding: 16px;
+}
+
+.karaoke-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.karaoke-list-head strong {
+  font-size: 20px;
+}
+
+.karaoke-list-head span {
+  color: #93c5fd;
+  font-weight: 900;
+}
+
+.karaoke-list {
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 230px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.karaoke-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 86px;
+  padding: 10px;
+  border: 2px solid #334155;
+  border-radius: 12px;
+  background: #172033;
+}
+
+.karaoke-card.active {
+  border-color: #facc15;
+  background: #312e1b;
+  box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.18);
+}
+
+.karaoke-card-main {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.karaoke-number {
+  display: grid;
+  place-items: center;
+  min-height: 56px;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.karaoke-card strong,
+.reservation-list strong {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+}
+
+.karaoke-card small,
+.reservation-list small,
+.karaoke-now span {
+  display: block;
+  margin-top: 5px;
+  color: #cbd5e1;
+}
+
+.karaoke-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.karaoke-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+}
+
+.karaoke-player {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #020617;
+}
+
+.karaoke-player video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.karaoke-standby {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 24px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.karaoke-standby strong {
+  color: #fff;
+  font-size: 28px;
+}
+
+.karaoke-now {
+  display: grid;
+  gap: 4px;
+  padding: 14px 0 10px;
+}
+
+.karaoke-now strong {
+  overflow-wrap: anywhere;
+  font-size: 24px;
+}
+
+.karaoke-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.karaoke-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 64px;
+  padding: 10px;
+  border: 2px solid #475569;
+  border-radius: 12px;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.karaoke-control.primary {
+  border-color: #facc15;
+  background: #ca8a04;
+  color: #111827;
+}
+
+.karaoke-control:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.karaoke-time-tags {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-top: 12px;
+}
+
+.karaoke-time-tags button {
+  display: grid;
+  gap: 4px;
+  min-width: 130px;
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #e5e7eb;
+  text-align: left;
+}
+
+.karaoke-time-tags button.active {
+  border-color: #facc15;
+  background: #422006;
+}
+
+.karaoke-time-tags strong {
+  color: #93c5fd;
+  font-variant-numeric: tabular-nums;
+}
+
+.karaoke-side-panel {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.quick-number,
+.reservation-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.quick-number-display {
+  display: grid;
+  place-items: center;
+  min-height: 64px;
+  border: 2px solid #334155;
+  border-radius: 12px;
+  background: #020617;
+  color: #facc15;
+  font-size: 26px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.quick-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.quick-keypad button {
+  min-height: 58px;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.reservation-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.reservation-list article {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: #172033;
+}
+
+.reservation-list article > span {
+  color: #93c5fd;
+  font-weight: 900;
+}
+
+.reservation-list p,
+.karaoke-message,
+.karaoke-empty {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.karaoke-empty {
+  padding: 22px;
+  border: 1px dashed #475569;
+  border-radius: 12px;
+  text-align: center;
+}
+
 .message {
   padding: 0 4px 24px;
 }
@@ -922,6 +1279,16 @@ label {
   .viewer-grid {
     grid-template-columns: 1fr;
   }
+
+  .karaoke-grid,
+  .karaoke-stage,
+  .karaoke-search-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .karaoke-list {
+    max-height: 460px;
+  }
 }
 
 @media (max-width: 820px) {
@@ -937,6 +1304,19 @@ label {
   .tool-status-grid,
   .youtube-list {
     grid-template-columns: 1fr;
+  }
+
+  .karaoke-search,
+  .karaoke-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .karaoke-card {
+    grid-template-columns: 1fr;
+  }
+
+  .karaoke-card-actions {
+    justify-content: flex-start;
   }
 }
 
@@ -979,6 +1359,26 @@ label {
 
   .file-viewer {
     min-height: 260px;
+  }
+
+  .karaoke-shell {
+    padding: 12px;
+  }
+
+  .karaoke-search {
+    grid-template-columns: 1fr;
+  }
+
+  .karaoke-card-main {
+    grid-template-columns: 86px minmax(0, 1fr);
+  }
+
+  .karaoke-stage {
+    gap: 12px;
+  }
+
+  .karaoke-controls {
+    grid-template-columns: 1fr;
   }
 
   .modal-backdrop {
