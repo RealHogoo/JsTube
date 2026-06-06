@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Download, Heart, Image as ImageIcon, Info, Music, RefreshCw, Search, Star, Tags, Trash2, Video, X } from "lucide-react";
+import { Clock, Download, Heart, Image as ImageIcon, Info, Music, RefreshCw, Search, SkipForward, Star, Tags, Trash2, Video, X } from "lucide-react";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_MEDIA_API_BASE || "";
@@ -166,11 +166,12 @@ function App() {
     }
   }
 
-  async function createThumbnail(item) {
+  async function createThumbnail(item, seekSeconds) {
     setLoading(true);
     setMessage("썸네일을 생성하는 중입니다.");
     try {
-      const data = await request(`/api/media/${item.webhard_file_id}/thumbnail/`, { method: "POST", body: "{}" });
+      const body = Number.isFinite(seekSeconds) ? { seek_seconds: seekSeconds } : {};
+      const data = await request(`/api/media/${item.webhard_file_id}/thumbnail/`, { method: "POST", body: JSON.stringify(body) });
       const updated = data.item;
       if (updated?.webhard_file_id) {
         setItems((prev) => prev.map((entry) => entry.webhard_file_id === updated.webhard_file_id ? updated : entry));
@@ -722,14 +723,23 @@ function ToolStatus({ status }) {
 }
 
 function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, onDelete }) {
+  const videoRef = useRef(null);
   const [editing, setEditing] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [form, setForm] = useState({ title: item.title || "", album: item.album || "", tags: (item.tags || []).join(", "), description: item.description || "" });
+  const [thumbnailTime, setThumbnailTime] = useState("00:00:01");
+  const [currentVideoTime, setCurrentVideoTime] = useState(0);
   const canManage = canManageMedia(currentUser, item);
   const canDelete = canDeleteMedia(currentUser, item);
+  const isYoutubeEmbed = item.source_type === "YOUTUBE" && item.youtube_embed_url;
+  const isLocalVideo = !isYoutubeEmbed && item.content_kind === "VIDEO" && item.content_url;
+  const timeTags = parseTimeTags(item.tags || []);
+  const activeTimeIndex = activeTimeTagIndex(timeTags, currentVideoTime);
 
   useEffect(() => {
     setForm({ title: item.title || "", album: item.album || "", tags: (item.tags || []).join(", "), description: item.description || "" });
+    setThumbnailTime("00:00:01");
+    setCurrentVideoTime(0);
   }, [item]);
 
   function save() {
@@ -740,6 +750,34 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
       description: form.description
     });
     setEditing(false);
+  }
+
+  function useCurrentThumbnailTime() {
+    const currentTime = videoRef.current?.currentTime || 0;
+    setThumbnailTime(formatMediaTime(currentTime));
+  }
+
+  function submitThumbnail() {
+    const seekSeconds = parseTimeInput(thumbnailTime);
+    if (seekSeconds == null) {
+      window.alert("썸네일 시간은 12, 01:12, 01:02:03 형식으로 입력해 주세요.");
+      return;
+    }
+    onCreateThumbnail(item, seekSeconds);
+  }
+
+  function seekToTimeTag(seconds) {
+    const video = videoRef.current;
+    if (!video) return;
+    video.currentTime = seconds;
+    video.play().catch(() => undefined);
+  }
+
+  function seekNextTimeTag() {
+    if (!timeTags.length) return;
+    const currentTime = videoRef.current?.currentTime || 0;
+    const next = timeTags.find((entry) => entry.seconds > currentTime + 0.35) || timeTags[0];
+    seekToTimeTag(next.seconds);
   }
 
   return (
@@ -755,10 +793,18 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
 
         <div className="viewer-grid">
           <div className="file-viewer media-viewer">
-            {item.source_type === "YOUTUBE" && item.youtube_embed_url ? (
+            {isYoutubeEmbed ? (
               <iframe className="detail-media youtube-frame" src={item.youtube_embed_url} title={item.title || item.display_name || "YouTube"} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen />
-            ) : item.content_kind === "VIDEO" && item.content_url ? (
-              <video className="detail-media" src={item.content_url} poster={hasVideoThumbnail(item) ? item.thumbnail_url : undefined} controls preload="metadata" />
+            ) : isLocalVideo ? (
+              <video
+                ref={videoRef}
+                className="detail-media"
+                src={item.content_url}
+                poster={hasVideoThumbnail(item) ? item.thumbnail_url : undefined}
+                controls
+                preload="metadata"
+                onTimeUpdate={(event) => setCurrentVideoTime(event.currentTarget.currentTime)}
+              />
             ) : item.thumbnail_url || item.content_url ? (
               <img className="detail-media" src={item.content_url || item.thumbnail_url} alt="" />
             ) : (
@@ -769,9 +815,6 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
           <aside className="viewer-side">
             <div className="actions side-actions">
               <button className="btn" type="button" onClick={() => setInfoOpen(true)}><Info size={16} /> 파일 정보</button>
-              {canManage && item.content_kind === "VIDEO" && !hasVideoThumbnail(item) && (
-                <button className="btn primary" type="button" onClick={() => onCreateThumbnail(item)}>썸네일 만들기</button>
-              )}
               <button className={item.favorite ? "btn primary" : "btn"} type="button" onClick={() => onPatch(item, { favorite: !item.favorite })}>
                 <Star size={16} /> 즐겨찾기
               </button>
@@ -785,6 +828,41 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
                 </button>
               )}
             </div>
+
+            {canManage && isLocalVideo && (
+              <div className="thumbnail-control">
+                <label>
+                  썸네일 시간
+                  <input className="input" value={thumbnailTime} onChange={(event) => setThumbnailTime(event.target.value)} placeholder="00:00:01" />
+                </label>
+                <div className="actions">
+                  <button className="btn" type="button" onClick={useCurrentThumbnailTime}><Clock size={16} /> 현재 시간</button>
+                  <button className="btn primary" type="button" onClick={submitThumbnail}>썸네일 변경</button>
+                </div>
+              </div>
+            )}
+
+            {isLocalVideo && timeTags.length > 0 && (
+              <div className="time-tags-panel">
+                <div className="time-tags-head">
+                  <strong>타임태그</strong>
+                  <button className="btn" type="button" onClick={seekNextTimeTag}><SkipForward size={16} /> 다음</button>
+                </div>
+                <div className="time-tag-list">
+                  {timeTags.map((entry, index) => (
+                    <button
+                      className={index === activeTimeIndex ? "time-tag-button active" : "time-tag-button"}
+                      key={`${entry.seconds}-${entry.raw}`}
+                      type="button"
+                      onClick={() => seekToTimeTag(entry.seconds)}
+                    >
+                      <strong>{formatMediaTime(entry.seconds)}</strong>
+                      <span>{entry.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {editing ? (
               <div className="form-grid single-column">
@@ -981,6 +1059,84 @@ function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString("ko-KR", { hour12: false });
+}
+
+function parseTimeInput(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    return clampMediaSeconds(Number(text));
+  }
+  const parts = text.split(":");
+  if (parts.length < 2 || parts.length > 3) {
+    return null;
+  }
+  const numbers = parts.map((part) => Number(part));
+  if (numbers.some((number) => !Number.isFinite(number))) {
+    return null;
+  }
+  const seconds = numbers[numbers.length - 1];
+  const minutes = numbers[numbers.length - 2];
+  const hours = numbers.length === 3 ? numbers[0] : 0;
+  if (seconds < 0 || seconds >= 60 || minutes < 0 || minutes >= 60 || hours < 0) {
+    return null;
+  }
+  return clampMediaSeconds((hours * 3600) + (minutes * 60) + seconds);
+}
+
+function parseTimeTags(tags) {
+  const result = [];
+  const seen = new Set();
+  for (const tag of tags || []) {
+    const raw = String(tag || "").trim();
+    const match = raw.match(/(?:^|[^\d])(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d(?:\.\d{1,3})?)(?!\d)/);
+    if (!match) continue;
+    const seconds = timeMatchToSeconds(match);
+    if (seconds == null) continue;
+    const key = String(Math.round(seconds * 1000));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const label = raw.replace(match[0], " ").replace(/\s+/g, " ").trim() || raw;
+    result.push({ raw, label, seconds });
+  }
+  return result.sort((left, right) => left.seconds - right.seconds);
+}
+
+function timeMatchToSeconds(match) {
+  const seconds = Number(match[3]);
+  const minutes = Number(match[2]);
+  const hours = match[1] == null ? 0 : Number(match[1]);
+  if (![hours, minutes, seconds].every((value) => Number.isFinite(value))) {
+    return null;
+  }
+  return clampMediaSeconds((hours * 3600) + (minutes * 60) + seconds);
+}
+
+function activeTimeTagIndex(timeTags, currentTime) {
+  let activeIndex = -1;
+  for (let index = 0; index < timeTags.length; index += 1) {
+    if (timeTags[index].seconds <= currentTime + 0.2) {
+      activeIndex = index;
+    }
+  }
+  return activeIndex;
+}
+
+function formatMediaTime(value) {
+  const totalSeconds = Math.max(Number(value || 0), 0);
+  const wholeSeconds = Math.floor(totalSeconds);
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor((wholeSeconds % 3600) / 60);
+  const seconds = wholeSeconds % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function clampMediaSeconds(value) {
+  if (!Number.isFinite(value)) return null;
+  return Math.min(Math.max(value, 0), 24 * 60 * 60);
 }
 
 createRoot(document.getElementById("root")).render(<App />);

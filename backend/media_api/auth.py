@@ -8,7 +8,7 @@ from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 
 
-WEBHARD_SERVICE = "WEBHARD_SERVICE"
+MEDIA_SERVICE = "MEDIA_SERVICE"
 _user_cache: dict[str, tuple[float, "CurrentUser"]] = {}
 
 
@@ -17,6 +17,7 @@ class CurrentUser:
     user_id: str
     roles: list[str]
     service_permissions: dict[str, list[str]]
+    access_token: str = ""
 
     @property
     def is_admin(self) -> bool:
@@ -25,13 +26,13 @@ class CurrentUser:
     def has_permission(self, permission: str) -> bool:
         if self.is_admin:
             return True
-        permissions = self.service_permissions.get(WEBHARD_SERVICE) or self.service_permissions.get("WEBHARD-SERVICE") or []
+        permissions = self.service_permissions.get(MEDIA_SERVICE) or self.service_permissions.get("MEDIA-SERVICE") or []
         return normalize_code(permission) in permissions
 
-    def has_any_webhard_permission(self) -> bool:
+    def has_any_media_permission(self) -> bool:
         if self.is_admin:
             return True
-        permissions = self.service_permissions.get(WEBHARD_SERVICE) or self.service_permissions.get("WEBHARD-SERVICE") or []
+        permissions = self.service_permissions.get(MEDIA_SERVICE) or self.service_permissions.get("MEDIA-SERVICE") or []
         return len(permissions) > 0
 
 
@@ -45,8 +46,11 @@ def require_user(request: HttpRequest, permission: str | None = None) -> Current
     current_user = fetch_current_user(token)
     if current_user is None:
         return JsonResponse({"ok": False, "code": "UNAUTHORIZED", "message": "login is invalid"}, status=401)
-    if not current_user.has_any_webhard_permission():
-        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "webhard permission is required"}, status=403)
+    service_status = fetch_service_status(token, MEDIA_SERVICE)
+    if service_status and str(service_status.get("use_yn") or "").upper() == "N":
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "media service is disabled"}, status=403)
+    if not current_user.has_any_media_permission():
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "media permission is required"}, status=403)
     if permission and not current_user.has_permission(permission):
         return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "permission is required"}, status=403)
     return current_user
@@ -71,7 +75,11 @@ def is_cross_site_request(request: HttpRequest) -> bool:
         return True
     if sec_fetch_site in {"same-origin", "same-site", "none"}:
         return False
-    return not is_same_origin(request, request.headers.get("Origin", "")) or not is_same_origin(request, request.headers.get("Referer", ""))
+    origin = request.headers.get("Origin", "")
+    referer = request.headers.get("Referer", "")
+    if request.method.upper() in {"POST", "PATCH", "DELETE"} and not origin and not referer:
+        return True
+    return not is_same_origin(request, origin) or not is_same_origin(request, referer)
 
 
 def is_same_origin(request: HttpRequest, source: str) -> bool:
@@ -129,9 +137,34 @@ def fetch_current_user(token: str) -> CurrentUser | None:
         user_id=user_id,
         roles=[str(item) for item in data.get("roles") or []],
         service_permissions=normalize_permissions(data.get("service_permissions")),
+        access_token=token,
     )
     cache_current_user(token, current_user)
     return current_user
+
+
+def fetch_service_status(token: str, service_code: str) -> dict[str, Any] | None:
+    url = f"{settings.MEDIA_CONFIG['ADMIN_SERVICE_BASE_URL']}/health/service/list.json"
+    try:
+        response = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={},
+            timeout=3,
+        )
+    except requests.RequestException:
+        return None
+    if not response.ok:
+        return None
+    body = response.json()
+    items = body.get("data")
+    if body.get("ok") is not True or not isinstance(items, list):
+        return None
+    normalized = normalize_code(service_code)
+    for item in items:
+        if isinstance(item, dict) and normalize_code(str(item.get("service_cd") or "")) == normalized:
+            return item
+    return None
 
 
 def cached_current_user(token: str) -> CurrentUser | None:

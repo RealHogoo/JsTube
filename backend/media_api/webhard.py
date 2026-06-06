@@ -1,13 +1,15 @@
 from datetime import datetime, timezone
+from threading import local
 from typing import Any
 
-import psycopg
+import requests
 from pymongo import UpdateOne
-from psycopg.rows import dict_row
 from django.conf import settings
 
 from .auth import CurrentUser
 from .mongo import media_collection
+
+_SESSION_STATE = local()
 
 
 def sync_from_webhard(current_user: CurrentUser, limit: int | None = None) -> dict[str, Any]:
@@ -15,8 +17,12 @@ def sync_from_webhard(current_user: CurrentUser, limit: int | None = None) -> di
     collection = media_collection()
     now = datetime.now(timezone.utc)
     operations = []
+    public_file_ids = []
     for row in rows:
-        doc = media_document(row, now, owner_is_admin=current_user.is_admin and str(row.get("owner_user_id") or "") == current_user.user_id)
+        should_publish = current_user.is_admin and str(row.get("owner_user_id") or "") == current_user.user_id
+        if should_publish and str(row.get("media_public_yn") or "") != "Y":
+            public_file_ids.append(int(row["file_id"]))
+        doc = media_document(row, now, owner_is_admin=should_publish or str(row.get("media_public_yn") or "") == "Y")
         operations.append(
             UpdateOne(
                 {"webhard_file_id": doc["webhard_file_id"]},
@@ -32,6 +38,8 @@ def sync_from_webhard(current_user: CurrentUser, limit: int | None = None) -> di
                 upsert=True,
             )
         )
+    if public_file_ids:
+        mark_media_public(current_user, public_file_ids)
     deleted_count = purge_deleted_webhard_media(current_user)
     if not operations:
         return {"scanned_count": 0, "upserted_count": 0, "deleted_count": deleted_count}
@@ -44,7 +52,10 @@ def sync_one_from_webhard(current_user: CurrentUser, file_id: int) -> dict[str, 
     collection = media_collection()
     now = datetime.now(timezone.utc)
     for row in rows:
-        doc = media_document(row, now, owner_is_admin=current_user.is_admin and str(row.get("owner_user_id") or "") == current_user.user_id)
+        should_publish = current_user.is_admin and str(row.get("owner_user_id") or "") == current_user.user_id
+        if should_publish and str(row.get("media_public_yn") or "") != "Y":
+            mark_media_public(current_user, [file_id])
+        doc = media_document(row, now, owner_is_admin=should_publish or str(row.get("media_public_yn") or "") == "Y")
         collection.update_one(
             {"webhard_file_id": doc["webhard_file_id"]},
             {
@@ -62,71 +73,54 @@ def sync_one_from_webhard(current_user: CurrentUser, file_id: int) -> dict[str, 
 
 
 def fetch_webhard_media(current_user: CurrentUser, limit: int) -> list[dict[str, Any]]:
-    sql = """
-        SELECT file_id, owner_user_id, file_name, display_name, file_size, content_type,
-               content_kind, thumbnail_path, original_created_at, created_at, updated_at
-        FROM wh_file
-        WHERE deleted_yn = 'N'
-          AND content_kind IN ('IMAGE', 'VIDEO')
-          AND (%s OR owner_user_id = %s)
-        ORDER BY updated_at DESC, file_id DESC
-        LIMIT %s
-    """
-    with psycopg.connect(
-        host=settings.MEDIA_CONFIG["WEBHARD_DB_HOST"],
-        port=settings.MEDIA_CONFIG["WEBHARD_DB_PORT"],
-        dbname=settings.MEDIA_CONFIG["WEBHARD_DB_DATABASE"],
-        user=settings.MEDIA_CONFIG["WEBHARD_DB_USERNAME"],
-        password=settings.MEDIA_CONFIG["WEBHARD_DB_PASSWORD"],
-        row_factory=dict_row,
-    ) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, [current_user.is_admin, current_user.user_id, limit])
-            return list(cursor.fetchall())
+    data = internal_post(
+        current_user,
+        "/internal/media/list.json",
+        {
+            "viewer_user_id": current_user.user_id,
+            "viewer_is_admin": current_user.is_admin,
+            "limit": limit,
+        },
+    )
+    items = data.get("items") or []
+    return items if isinstance(items, list) else []
 
 
 def fetch_webhard_media_by_file_id(current_user: CurrentUser, file_id: int) -> list[dict[str, Any]]:
-    sql = """
-        SELECT file_id, owner_user_id, file_name, display_name, file_size, content_type,
-               content_kind, thumbnail_path, original_created_at, created_at, updated_at
-        FROM wh_file
-        WHERE deleted_yn = 'N'
-          AND content_kind IN ('IMAGE', 'VIDEO')
-          AND file_id = %s
-          AND (%s OR owner_user_id = %s)
-    """
-    with psycopg.connect(
-        host=settings.MEDIA_CONFIG["WEBHARD_DB_HOST"],
-        port=settings.MEDIA_CONFIG["WEBHARD_DB_PORT"],
-        dbname=settings.MEDIA_CONFIG["WEBHARD_DB_DATABASE"],
-        user=settings.MEDIA_CONFIG["WEBHARD_DB_USERNAME"],
-        password=settings.MEDIA_CONFIG["WEBHARD_DB_PASSWORD"],
-        row_factory=dict_row,
-    ) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, [file_id, current_user.is_admin, current_user.user_id])
-            return list(cursor.fetchall())
+    file = fetch_webhard_file(current_user, file_id, allow_public=False)
+    if not file:
+        return []
+    return [file]
 
 
 def fetch_webhard_file(current_user: CurrentUser, file_id: int, allow_public: bool = False) -> dict[str, Any] | None:
-    sql = """
-        SELECT file_id, owner_user_id, file_name, storage_path, thumbnail_path, content_type
-        FROM wh_file
-        WHERE deleted_yn = 'N'
-          AND file_id = %s
-          AND (%s OR owner_user_id = %s OR %s)
-    """
-    with psycopg.connect(
-        host=settings.MEDIA_CONFIG["WEBHARD_DB_HOST"],
-        port=settings.MEDIA_CONFIG["WEBHARD_DB_PORT"],
-        dbname=settings.MEDIA_CONFIG["WEBHARD_DB_DATABASE"],
-        user=settings.MEDIA_CONFIG["WEBHARD_DB_USERNAME"],
-        password=settings.MEDIA_CONFIG["WEBHARD_DB_PASSWORD"],
-        row_factory=dict_row,
-    ) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, [file_id, current_user.is_admin, current_user.user_id, allow_public])
-            return cursor.fetchone()
+    data = internal_post(
+        current_user,
+        "/internal/media/file-detail.json",
+        {
+            "file_id": file_id,
+            "viewer_user_id": current_user.user_id,
+            "viewer_is_admin": current_user.is_admin,
+            "allow_public": allow_public,
+        },
+    )
+    item = data.get("item")
+    return item if isinstance(item, dict) else None
+
+
+def stream_webhard_file(current_user: CurrentUser, file_id: int, file_kind: str, allow_public: bool = False) -> requests.Response:
+    return internal_stream_post(
+        current_user,
+        "/internal/media/file-stream.json",
+        {
+            "file_id": file_id,
+            "file_kind": file_kind,
+            "viewer_user_id": current_user.user_id,
+            "viewer_is_admin": current_user.is_admin,
+            "allow_public": allow_public,
+        },
+        timeout=30,
+    )
 
 
 def purge_deleted_webhard_media(current_user: CurrentUser) -> int:
@@ -147,25 +141,56 @@ def purge_deleted_webhard_media(current_user: CurrentUser) -> int:
 def fetch_active_webhard_file_ids(current_user: CurrentUser, file_ids: list[int]) -> set[int]:
     if not file_ids:
         return set()
-    sql = """
-        SELECT file_id
-        FROM wh_file
-        WHERE deleted_yn = 'N'
-          AND content_kind IN ('IMAGE', 'VIDEO')
-          AND file_id = ANY(%s::bigint[])
-          AND (%s OR owner_user_id = %s)
-    """
-    with psycopg.connect(
-        host=settings.MEDIA_CONFIG["WEBHARD_DB_HOST"],
-        port=settings.MEDIA_CONFIG["WEBHARD_DB_PORT"],
-        dbname=settings.MEDIA_CONFIG["WEBHARD_DB_DATABASE"],
-        user=settings.MEDIA_CONFIG["WEBHARD_DB_USERNAME"],
-        password=settings.MEDIA_CONFIG["WEBHARD_DB_PASSWORD"],
-        row_factory=dict_row,
-    ) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, [file_ids, current_user.is_admin, current_user.user_id])
-            return {int(row["file_id"]) for row in cursor.fetchall()}
+    data = internal_post(
+        current_user,
+        "/internal/media/active-ids.json",
+        {
+            "viewer_user_id": current_user.user_id,
+            "viewer_is_admin": current_user.is_admin,
+            "file_ids": file_ids[:500],
+        },
+    )
+    items = data.get("file_ids") or []
+    return {int(item) for item in items if item}
+
+
+def register_youtube_file(current_user: CurrentUser, payload: dict[str, Any]) -> int:
+    data = internal_post(
+        current_user,
+        "/internal/media/register-youtube.json",
+        {
+            **payload,
+            "owner_user_id": current_user.user_id,
+        },
+        timeout=30,
+    )
+    file_id = int(data.get("file_id") or 0)
+    if file_id <= 0:
+        raise RuntimeError("webhard internal register response does not include file_id")
+    return file_id
+
+
+def mark_media_public(current_user: CurrentUser, file_ids: list[int]) -> dict[str, Any]:
+    if not file_ids:
+        return {"updated_count": 0}
+    updated_count = 0
+    updated_ids = []
+    for chunk in chunks(file_ids, 500):
+        data = internal_post(
+            current_user,
+            "/internal/media/mark-public.json",
+            {
+                "owner_user_id": current_user.user_id,
+                "file_ids": chunk,
+            },
+        )
+        updated_count += int(data.get("updated_count") or 0)
+        updated_ids.extend(int(item) for item in data.get("file_ids") or [] if item)
+    return {"updated_count": updated_count, "file_ids": updated_ids}
+
+
+def check_webhard_internal_ready() -> dict[str, Any]:
+    return internal_post(None, "/internal/media/ready.json", {}, timeout=5)
 
 
 def media_document(row: dict[str, Any], synced_at: datetime, owner_is_admin: bool = False) -> dict[str, Any]:
@@ -191,3 +216,66 @@ def media_document(row: dict[str, Any], synced_at: datetime, owner_is_admin: boo
         "webhard_updated_at": row.get("updated_at"),
         "synced_at": synced_at,
     }
+
+
+def internal_post(current_user: CurrentUser | None, path: str, payload: dict[str, Any], timeout: int = 15) -> dict[str, Any]:
+    base_url, headers = internal_request_config(current_user)
+    response = internal_session().post(
+        f"{base_url}{path}",
+        headers=headers,
+        json=payload,
+        timeout=timeout,
+    )
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise RuntimeError(f"webhard internal response is invalid: HTTP {response.status_code}") from exc
+    if not response.ok or body.get("ok") is not True:
+        raise RuntimeError(str(body.get("message") or f"webhard internal request failed: HTTP {response.status_code}"))
+    data = body.get("data") or {}
+    if not isinstance(data, dict):
+        raise RuntimeError("webhard internal response data is invalid")
+    return data
+
+
+def internal_stream_post(current_user: CurrentUser, path: str, payload: dict[str, Any], timeout: int = 30) -> requests.Response:
+    base_url, headers = internal_request_config(current_user)
+    response = internal_session().post(
+        f"{base_url}{path}",
+        headers=headers,
+        json=payload,
+        timeout=timeout,
+        stream=True,
+    )
+    if not response.ok:
+        response.close()
+        raise RuntimeError(f"webhard internal stream failed: HTTP {response.status_code}")
+    return response
+
+
+def internal_request_config(current_user: CurrentUser | None = None) -> tuple[str, dict[str, str]]:
+    base_url = str(settings.MEDIA_CONFIG.get("WEBHARD_INTERNAL_BASE_URL") or settings.MEDIA_CONFIG.get("WEBHARD_PUBLIC_BASE_URL") or "").rstrip("/")
+    token = str(settings.MEDIA_CONFIG.get("MEDIA_INTERNAL_API_TOKEN") or "").strip()
+    if not base_url:
+        raise RuntimeError("webhard internal base url is not configured")
+    if not token:
+        raise RuntimeError("media internal api token is not configured")
+    headers = {"X-Internal-Api-Token": token, "Content-Type": "application/json"}
+    if current_user is not None:
+        if not current_user.access_token:
+            raise RuntimeError("admin user token is required for webhard internal request")
+        headers["X-User-Access-Token"] = current_user.access_token
+    return base_url, headers
+
+
+def internal_session() -> requests.Session:
+    session = getattr(_SESSION_STATE, "session", None)
+    if session is None:
+        session = requests.Session()
+        _SESSION_STATE.session = session
+    return session
+
+
+def chunks(items: list[int], size: int):
+    for index in range(0, len(items), size):
+        yield items[index:index + size]

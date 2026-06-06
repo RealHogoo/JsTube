@@ -10,12 +10,11 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-import psycopg
 import requests
 from django.conf import settings
 from .auth import CurrentUser
 from .mongo import media_collection
-from .webhard import sync_one_from_webhard
+from .webhard import check_webhard_internal_ready, register_youtube_file, sync_one_from_webhard
 
 def preview_youtube(url: str) -> dict[str, Any]:
     info = load_youtube_info(url)
@@ -113,7 +112,7 @@ def check_download_tools() -> dict[str, Any]:
     }
 
 def check_webhard() -> dict[str, Any]:
-    base_url = str(settings.MEDIA_CONFIG.get("WEBHARD_PUBLIC_BASE_URL") or "").rstrip("/")
+    base_url = str(settings.MEDIA_CONFIG.get("WEBHARD_INTERNAL_BASE_URL") or settings.MEDIA_CONFIG.get("WEBHARD_PUBLIC_BASE_URL") or "").rstrip("/")
     if not base_url:
         return {
             "name": "webhard",
@@ -125,18 +124,17 @@ def check_webhard() -> dict[str, Any]:
             "message": "webhard base url is not configured",
         }
     try:
-        response = requests.post(f"{base_url}/health/ready.json", timeout=5)
-        message = "webhard is ready" if response.ok else f"webhard returned HTTP {response.status_code}"
+        check_webhard_internal_ready()
         return {
             "name": "webhard",
-            "installed": response.ok,
+            "installed": True,
             "path": base_url,
-            "version": "ready" if response.ok else "down",
+            "version": "ready",
             "latest_version": "",
             "is_latest": None,
-            "message": message,
+            "message": "webhard internal api is ready",
         }
-    except requests.RequestException as exc:
+    except Exception as exc:
         return {
             "name": "webhard",
             "installed": False,
@@ -363,59 +361,20 @@ def insert_webhard_file(
     original_created_at: datetime,
     content_sha256: str,
 ) -> int:
-    with psycopg.connect(
-        host=settings.MEDIA_CONFIG["WEBHARD_DB_HOST"],
-        port=settings.MEDIA_CONFIG["WEBHARD_DB_PORT"],
-        dbname=settings.MEDIA_CONFIG["WEBHARD_DB_DATABASE"],
-        user=settings.MEDIA_CONFIG["WEBHARD_DB_USERNAME"],
-        password=settings.MEDIA_CONFIG["WEBHARD_DB_PASSWORD"],
-    ) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                INSERT INTO wh_file (
-                    owner_user_id, folder_id, file_name, display_name, file_size, content_type, content_kind,
-                    storage_path, public_path, thumbnail_path, original_created_at, content_sha256, created_by, updated_by
-                ) VALUES (
-                    %s, NULL, %s, %s, %s, %s, 'VIDEO',
-                    %s, %s, %s, %s, %s, %s, %s
-                )
-                RETURNING file_id
-                """,
-                [
-                    current_user.user_id,
-                    file_name,
-                    file_name,
-                    file_size,
-                    content_type,
-                    str(storage_path),
-                    public_path,
-                    str(thumbnail_path) if thumbnail_path else None,
-                    original_created_at.replace(tzinfo=None),
-                    content_sha256,
-                    current_user.user_id,
-                    current_user.user_id,
-                ],
-            )
-            file_id = cursor.fetchone()[0]
-            cursor.execute(
-                """
-                INSERT INTO wh_audit_log (
-                    actor_user_id, action_cd, target_type, target_id, detail_json, created_by, updated_by
-                ) VALUES (
-                    %s, 'FILE_UPLOAD', 'FILE', %s, %s::jsonb, %s, %s
-                )
-                """,
-                [
-                    current_user.user_id,
-                    file_id,
-                    json.dumps({"source": "YOUTUBE_DOWNLOAD"}, ensure_ascii=False),
-                    current_user.user_id,
-                    current_user.user_id,
-                ],
-            )
-        connection.commit()
-    return int(file_id)
+    return register_youtube_file(
+        current_user,
+        {
+            "file_name": file_name,
+            "file_size": file_size,
+            "content_type": content_type,
+            "storage_path": str(storage_path),
+            "public_path": public_path,
+            "thumbnail_path": str(thumbnail_path) if thumbnail_path else "",
+            "media_public_yn": current_user.is_admin,
+            "original_created_at": original_created_at.isoformat(),
+            "content_sha256": content_sha256,
+        },
+    )
 
 def create_direct_video_thumbnail(storage_path: Path, owner_user_id: str, created_at: datetime) -> Path | None:
     ffmpeg = ffmpeg_command()
@@ -517,7 +476,8 @@ def youtube_media_tags(title: str, tags: list[str]) -> list[str]:
 def youtube_download_dir(video_id: str) -> Path:
     base_dir = Path(str(settings.MEDIA_CONFIG.get("YOUTUBE_TOOL_DIR") or "")).resolve().parent / "youtube-downloads"
     digest = hashlib.sha1(video_id.encode("utf-8")).hexdigest()[:12]
-    return base_dir / f"{video_id}-{digest}"
+    safe_id = safe_path_segment(video_id)[:48]
+    return base_dir / f"{safe_id}-{digest}"
 
 def cleanup_download_dir(video_id: str) -> None:
     target_dir = youtube_download_dir(video_id)

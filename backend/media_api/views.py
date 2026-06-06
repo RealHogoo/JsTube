@@ -12,12 +12,12 @@ from urllib.parse import urlparse
 import requests
 from bson import ObjectId
 from django.conf import settings
-from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from .auth import CurrentUser, auth_token, require_user
 from .mongo import media_collection, mongo_client
-from .webhard import fetch_webhard_file, sync_from_webhard, sync_one_from_webhard
+from .webhard import stream_webhard_file, sync_from_webhard, sync_one_from_webhard
 from .youtube import check_download_tools, import_youtube_item, preview_youtube
 
 try:
@@ -258,12 +258,23 @@ def media_list(request: HttpRequest) -> JsonResponse:
         keyword = request.GET["q"].strip()[:80]
         pattern = re.escape(keyword)
     if request.GET.get("q") and keyword:
-        query["$or"] = [
-            {"display_name": {"$regex": pattern, "$options": "i"}},
-            {"file_name": {"$regex": pattern, "$options": "i"}},
-            {"tags": {"$regex": pattern, "$options": "i"}},
-            {"album": {"$regex": pattern, "$options": "i"}},
-        ]
+        search_query = {
+            "$or": [
+                {"title": {"$regex": pattern, "$options": "i"}},
+                {"display_name": {"$regex": pattern, "$options": "i"}},
+                {"file_name": {"$regex": pattern, "$options": "i"}},
+                {"tags": {"$regex": pattern, "$options": "i"}},
+                {"album": {"$regex": pattern, "$options": "i"}},
+                {"description": {"$regex": pattern, "$options": "i"}},
+                {"channel_name": {"$regex": pattern, "$options": "i"}},
+                {"owner_user_id": {"$regex": pattern, "$options": "i"}},
+            ]
+        }
+        if "$or" in query:
+            access_query = {"$or": query.pop("$or")}
+            query["$and"] = [access_query, search_query]
+        else:
+            query.update(search_query)
 
     sort_key = request.GET.get("sort", "recent").strip().lower()
     if sort_key == "popular":
@@ -416,12 +427,21 @@ def media_thumbnail(request: HttpRequest, webhard_file_id: int) -> JsonResponse 
     if not can_manage_media(user, item):
         return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "owner or admin permission is required"}, status=403)
 
+    body = json_body(request)
+    seek_seconds = optional_seconds(body.get("seek_seconds"))
+    if seek_seconds is False:
+        return bad_request("seek_seconds must be numeric")
+
+    payload: dict[str, Any] = {"file_id": webhard_file_id, "limit": 1}
+    if isinstance(seek_seconds, (int, float)):
+        payload["seek_seconds"] = seek_seconds
+
     token = auth_token(request)
     try:
         response = requests.post(
             f"{settings.MEDIA_CONFIG['WEBHARD_PUBLIC_BASE_URL']}/thumbnail/rebuild.json",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={"file_id": webhard_file_id, "limit": 1},
+            json=payload,
             timeout=30,
         )
         body = response.json()
@@ -453,40 +473,22 @@ def media_file_proxy(request: HttpRequest, webhard_file_id: int, file_kind: str)
     if not item:
         return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "media file not found"}, status=404)
 
-    file = fetch_webhard_file(user, webhard_file_id, allow_public=is_public_media(item))
-    if not file:
-        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "media file not found"}, status=404)
-
-    if file_kind == "thumbnail":
-        path = file.get("thumbnail_path")
-        content_type = "image/webp"
-        as_attachment = False
-    elif file_kind == "content":
-        path = file.get("storage_path")
-        content_type = file.get("content_type") or "application/octet-stream"
-        as_attachment = False
-    elif file_kind == "download":
-        path = file.get("storage_path")
-        content_type = "application/octet-stream"
-        as_attachment = True
-    else:
+    if file_kind not in {"thumbnail", "content", "download"}:
         return bad_request("invalid file kind")
-
-    if not path:
-        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "file path not found"}, status=404)
     try:
-        file_path = safe_media_path(path)
-    except ValueError:
-        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "file path is outside storage root"}, status=403)
-    if not file_path.exists():
-        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "file path not found"}, status=404)
+        upstream = stream_webhard_file(user, webhard_file_id, file_kind, allow_public=is_public_media(item))
+    except RuntimeError as exc:
+        return JsonResponse({"ok": False, "code": "WEBHARD_STREAM_FAILED", "message": str(exc)}, status=502)
 
-    return FileResponse(
-        open(file_path, "rb"),
-        as_attachment=as_attachment,
-        filename=str(file.get("file_name") or "download"),
-        content_type=str(content_type),
+    response = StreamingHttpResponse(
+        stream_response_chunks(upstream),
+        content_type=upstream.headers.get("Content-Type") or "application/octet-stream",
     )
+    for header in ["Content-Disposition", "X-Content-Type-Options", "Content-Security-Policy"]:
+        value = upstream.headers.get(header)
+        if value:
+            response[header] = value
+    return response
 
 
 def albums(request: HttpRequest) -> JsonResponse:
@@ -567,13 +569,21 @@ def readable_media_query(user: CurrentUser, webhard_file_id: int | None = None) 
     query["$or"] = [
         {"owner_user_id": user.user_id},
         {"owner_is_admin": True},
-        {"source_type": "YOUTUBE_DOWNLOAD"},
     ]
     return query
 
 
 def is_public_media(item: dict[str, Any]) -> bool:
-    return bool(item.get("owner_is_admin")) or item.get("source_type") == "YOUTUBE_DOWNLOAD"
+    return bool(item.get("owner_is_admin"))
+
+
+def stream_response_chunks(upstream: requests.Response):
+    try:
+        for chunk in upstream.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                yield chunk
+    finally:
+        upstream.close()
 
 
 def media_counts(collection, query: dict[str, Any]) -> dict[str, int]:
@@ -892,6 +902,18 @@ def int_param(request: HttpRequest, name: str, default: int) -> int:
         return default
 
 
+def optional_seconds(value: Any) -> float | bool | None:
+    if value is None or value == "":
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return False
+    if not 0 <= parsed <= 24 * 60 * 60:
+        return False
+    return parsed
+
+
 def json_body(request: HttpRequest) -> dict[str, Any]:
     if not request.body:
         return {}
@@ -927,14 +949,3 @@ def is_youtube_url(value: str) -> bool:
         return False
     allowed_hosts = {"www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
     return parsed.scheme == "https" and parsed.hostname in allowed_hosts
-
-
-def safe_media_path(value: Any) -> Path:
-    configured = str(settings.MEDIA_CONFIG.get("WEBHARD_STORAGE_ROOT") or "").strip()
-    if not configured:
-        raise ValueError("webhard storage root is not configured")
-    root = Path(configured).resolve()
-    candidate = Path(str(value)).resolve()
-    if candidate != root and root not in candidate.parents:
-        raise ValueError("file path is outside storage root")
-    return candidate

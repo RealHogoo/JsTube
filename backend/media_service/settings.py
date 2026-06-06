@@ -5,16 +5,17 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 APP_ENV = os.environ.get("APP_ENV", os.environ.get("MEDIA_SERVICE_ENV", "local")).strip().lower()
+IS_PRODUCTION = APP_ENV in {"prod", "production"}
 DEBUG = os.environ.get("MEDIA_SERVICE_DEBUG", "false").lower() == "true"
 SECRET_KEY = os.environ.get("MEDIA_SERVICE_SECRET_KEY", "").strip()
 if not SECRET_KEY:
-    if APP_ENV in {"prod", "production"}:
+    if IS_PRODUCTION:
         raise RuntimeError("MEDIA_SERVICE_SECRET_KEY is required in production")
     SECRET_KEY = "dev-media-secret"
-if APP_ENV in {"prod", "production"} and not os.environ.get("WEBHARD_DB_PASSWORD"):
-    raise RuntimeError("WEBHARD_DB_PASSWORD is required in production")
-if APP_ENV in {"prod", "production"} and not os.environ.get("WEBHARD_STORAGE_ROOT"):
+if IS_PRODUCTION and not os.environ.get("WEBHARD_STORAGE_ROOT"):
     raise RuntimeError("WEBHARD_STORAGE_ROOT is required in production")
+if IS_PRODUCTION and not os.environ.get("MEDIA_INTERNAL_API_TOKEN"):
+    raise RuntimeError("MEDIA_INTERNAL_API_TOKEN is required in production")
 ALLOWED_HOSTS = [item.strip() for item in os.environ.get("MEDIA_SERVICE_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if item.strip()]
 
 INSTALLED_APPS = [
@@ -50,11 +51,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 MEDIA_CONFIG = {
     "ADMIN_SERVICE_BASE_URL": os.environ.get("ADMIN_SERVICE_BASE_URL", "http://localhost:8081").rstrip("/"),
     "WEBHARD_PUBLIC_BASE_URL": os.environ.get("WEBHARD_PUBLIC_BASE_URL", "http://localhost:8083").rstrip("/"),
-    "WEBHARD_DB_HOST": os.environ.get("WEBHARD_DB_HOST", "localhost"),
-    "WEBHARD_DB_PORT": int(os.environ.get("WEBHARD_DB_PORT", "5432")),
-    "WEBHARD_DB_DATABASE": os.environ.get("WEBHARD_DB_DATABASE", "webhard"),
-    "WEBHARD_DB_USERNAME": os.environ.get("WEBHARD_DB_USERNAME", "postgres"),
-    "WEBHARD_DB_PASSWORD": os.environ.get("WEBHARD_DB_PASSWORD", "postgres"),
+    "WEBHARD_INTERNAL_BASE_URL": os.environ.get("WEBHARD_INTERNAL_BASE_URL", os.environ.get("WEBHARD_PUBLIC_BASE_URL", "http://localhost:8083")).rstrip("/"),
+    "MEDIA_INTERNAL_API_TOKEN": os.environ.get("MEDIA_INTERNAL_API_TOKEN", "" if IS_PRODUCTION else "dev-media-internal-token"),
     "WEBHARD_STORAGE_ROOT": os.environ.get("WEBHARD_STORAGE_ROOT", str(BASE_DIR.parent.parent / "webhard-service" / "storage")),
     "MEDIA_MONGO_URI": os.environ.get("MEDIA_MONGO_URI", "mongodb://localhost:27017"),
     "MEDIA_MONGO_DATABASE": os.environ.get("MEDIA_MONGO_DATABASE", "media_service"),
