@@ -1356,11 +1356,15 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
             <div className="preview-head">
               <div>
                 <h2>{preview.playlist_title || preview.title || "유튜브 영상"}</h2>
-                <p>{preview.item_count}개 영상</p>
+                <p>{preview.item_count}개 영상 · 분석된 목록에서 원하는 영상만 저장하거나 전체 저장을 시작할 수 있습니다.</p>
               </div>
-              <button className="btn primary" type="button" onClick={save} disabled={loading}>전체 시작</button>
+              <button className="btn primary" type="button" onClick={save} disabled={loading}>전체 저장 시작</button>
             </div>
             <QueueSummary items={queueItems} importing={importing} jobSummary={jobSummary} />
+            <div className="youtube-list-head">
+              <strong>저장할 영상 목록</strong>
+              <span>다운로드 후 웹하드에 저장되고 미디어 목록에 반영됩니다.</span>
+            </div>
             <div className="youtube-list">
               {(queueItems.length ? queueItems : buildImportQueue(preview.items || [])).map((item) => (
                 <article className={`youtube-item ${item.status || "queued"}`} key={item.youtube_video_id}>
@@ -1377,7 +1381,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
                         onClick={() => startOne(item)}
                         disabled={loading || item.status === "downloading" || item.status === "saved"}
                       >
-                        개별 다운로드
+                        이 영상만 저장
                       </button>
                     </div>
                   </div>
@@ -1402,12 +1406,17 @@ function QueueSummary({ items, importing, jobSummary }) {
   const finished = Number(jobSummary?.finished_count ?? saved + failed);
   const progress = Number(jobSummary?.progress_percent ?? ((finished / items.length) * 100));
   const activeTitle = jobSummary?.active_item?.title || items.find((item) => item.status === "downloading")?.title || "";
+  const summaryText = failed
+    ? `${failed}개 실패`
+    : importing || active
+      ? "다운로드 및 웹하드 저장 진행 중"
+      : "저장 시작 전";
   return (
     <div className="queue-summary" aria-live="polite">
       <strong>{saved}/{items.length}</strong>
-      <span>{failed ? `${failed}개 실패` : importing || active ? "저장 진행 중" : "저장 대기"}</span>
+      <span>{summaryText}</span>
       <progress max={100} value={Number.isFinite(progress) ? progress : 0} />
-      <small>완료 {finished}개 · 진행 {running}개 · 대기 {queued}개{activeTitle ? ` · 현재: ${activeTitle}` : ""}</small>
+      <small>웹하드 저장 완료 {saved}개 · 다운로드 중 {running}개 · 다운로드 예정 {queued}개{activeTitle ? ` · 현재 처리 중: ${activeTitle}` : ""}</small>
     </div>
   );
 }
@@ -1672,10 +1681,10 @@ function isYoutubeJobIdle(job) {
 }
 
 function queueStatusLabel(item) {
-  if (item.status === "saved") return "저장 완료";
+  if (item.status === "saved") return "웹하드 저장 완료";
   if (item.status === "downloading") return "다운로드 중";
   if (item.status === "failed") return "실패";
-  return "대기 중";
+  return "다운로드 예정";
 }
 
 function isAuthInvalid(response, body) {

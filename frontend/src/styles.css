@@ -1300,6 +1300,21 @@ label {
   gap: 10px;
 }
 
+.youtube-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.youtube-list-head strong {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
 .youtube-item {
   display: grid;
   grid-template-columns: 132px minmax(0, 1fr);
