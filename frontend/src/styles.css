@@ -1225,15 +1225,6 @@ label {
   background: #fff;
 }
 
-.time-tag-editor.compact {
-  grid-template-columns: 1fr;
-  padding-top: 0;
-}
-
-.time-tag-editor.compact textarea {
-  min-height: 92px;
-}
-
 .info-dialog-backdrop {
   position: absolute;
   inset: 0;
