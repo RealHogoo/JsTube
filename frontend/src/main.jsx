@@ -917,12 +917,12 @@ function KaraokePage({ currentUser, request }) {
             <div className={focusArea === "queue" ? "reservation-panel focus-area" : "reservation-panel"}>
               <div className="karaoke-list-head">
                 <strong>예약 목록</strong>
-                <span>{queue.length}곡</span>
+                <span>{reservationSummary(queue)}</span>
               </div>
               <div className="reservation-list">
                 {queue.map((item, index) => (
-                  <article className={index === selectedQueueIndex ? "active" : ""} key={item.webhard_file_id}>
-                    <span>{index + 1}</span>
+                  <article className={reservationItemClass(index, selectedQueueIndex)} key={item.webhard_file_id}>
+                    <span>{reservationOrderLabel(index)}</span>
                     <div>
                       <strong>{item.title || item.display_name || item.file_name}</strong>
                       <small>{karaokeArtist(item)}</small>
@@ -941,6 +941,28 @@ function KaraokePage({ currentUser, request }) {
       {message && <p className="message karaoke-message">{message}</p>}
     </main>
   );
+}
+
+function reservationSummary(queue) {
+  if (!queue.length) return "0곡";
+  if (queue.length === 1) return "다음곡 1곡";
+  const extraCount = queue.length - 2;
+  return extraCount > 0 ? `다음곡 · 다다음곡 +${extraCount}곡` : "다음곡 · 다다음곡";
+}
+
+function reservationItemClass(index, selectedQueueIndex) {
+  const classes = [];
+  if (index === selectedQueueIndex) classes.push("active");
+  if (index === 0) classes.push("next-song");
+  if (index === 1) classes.push("second-song");
+  if (index > 1) classes.push("later-song");
+  return classes.join(" ");
+}
+
+function reservationOrderLabel(index) {
+  if (index === 0) return "다음곡";
+  if (index === 1) return "다다음곡";
+  return `+${index - 1}`;
 }
 
 function KaraokeRemotePage({ request, sessionId }) {

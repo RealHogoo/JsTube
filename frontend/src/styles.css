@@ -926,7 +926,7 @@ label {
 
 .reservation-list article {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  grid-template-columns: 70px minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   padding: 9px;
@@ -941,8 +941,41 @@ label {
 }
 
 .reservation-list article > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #1e293b;
   color: #93c5fd;
+  font-size: 12px;
   font-weight: 900;
+  white-space: nowrap;
+}
+
+.reservation-list article.next-song {
+  border-color: #ef4444;
+  background: #3b1218;
+}
+
+.reservation-list article.next-song > span {
+  background: #dc2626;
+  color: #fff;
+}
+
+.reservation-list article.second-song {
+  border-color: #3b82f6;
+  background: #0f2447;
+}
+
+.reservation-list article.second-song > span {
+  background: #2563eb;
+  color: #fff;
+}
+
+.reservation-list article.later-song {
+  opacity: 0.86;
 }
 
 .reservation-list p,
