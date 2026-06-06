@@ -487,6 +487,15 @@ label {
   padding: 20px;
 }
 
+.karaoke-remote-shell {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 14px;
+}
+
 .karaoke-shell:focus {
   outline: none;
 }
@@ -494,7 +503,8 @@ label {
 .karaoke-search-panel,
 .karaoke-list-panel,
 .karaoke-player-panel,
-.karaoke-side-panel {
+.karaoke-side-panel,
+.mobile-remote-panel {
   border: 1px solid #1f2937;
   border-radius: 14px;
   background: #0f172a;
@@ -549,6 +559,90 @@ label {
   width: 100%;
 }
 
+.mobile-remote-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.mobile-remote-actions {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mobile-remote-actions button {
+  min-height: 54px;
+  border: 1px solid #475569;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #fff;
+  font-weight: 900;
+}
+
+.mobile-remote-actions button:disabled {
+  opacity: 0.45;
+}
+
+.remote-session-url {
+  margin: 0;
+  color: #bfdbfe;
+  overflow-wrap: anywhere;
+}
+
+.remote-control-pad,
+.remote-keypad-panel,
+.remote-song-list {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #1f2937;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.remote-control-pad {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.remote-control-pad button {
+  min-height: 62px;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  background: #1e293b;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.remote-song-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: #172033;
+}
+
+.remote-song-list article > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.remote-song-list strong {
+  overflow-wrap: anywhere;
+}
+
+.remote-song-list small {
+  grid-column: 2;
+  color: #cbd5e1;
+}
+
 .karaoke-grid {
   display: grid;
   grid-template-columns: minmax(360px, 0.95fr) minmax(560px, 1.55fr);
@@ -559,6 +653,11 @@ label {
 .karaoke-player-panel,
 .karaoke-side-panel {
   padding: 16px;
+}
+
+.focus-area {
+  border-color: #facc15;
+  box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.2), 0 18px 44px rgba(15, 23, 42, 0.18);
 }
 
 .karaoke-list-head {
@@ -757,6 +856,25 @@ label {
   font-variant-numeric: tabular-nums;
 }
 
+.time-tag-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding-top: 12px;
+}
+
+.time-tag-editor label {
+  display: grid;
+  gap: 6px;
+  color: #e5e7eb;
+  font-weight: 900;
+}
+
+.time-tag-editor textarea {
+  min-height: 96px;
+}
+
 .karaoke-side-panel {
   display: grid;
   align-content: start;
@@ -807,13 +925,18 @@ label {
 
 .reservation-list article {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   padding: 9px;
   border: 1px solid #334155;
   border-radius: 10px;
   background: #172033;
+}
+
+.reservation-list article.active {
+  border-color: #facc15;
+  background: #312e1b;
 }
 
 .reservation-list article > span {
@@ -1318,6 +1441,18 @@ label {
   .karaoke-card-actions {
     justify-content: flex-start;
   }
+
+  .mobile-remote-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .time-tag-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .remote-song-list article {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1379,6 +1514,19 @@ label {
 
   .karaoke-controls {
     grid-template-columns: 1fr;
+  }
+
+  .mobile-remote-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .remote-control-pad,
+  .remote-song-list article > div {
+    grid-template-columns: 1fr;
+  }
+
+  .remote-song-list small {
+    grid-column: 1;
   }
 
   .modal-backdrop {

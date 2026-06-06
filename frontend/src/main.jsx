@@ -7,6 +7,7 @@ const API_BASE = import.meta.env.VITE_MEDIA_API_BASE || "";
 const ADMIN_BASE_URL = serviceBaseUrl(import.meta.env.VITE_ADMIN_BASE_URL, 8081);
 const WEBHARD_BASE_URL = serviceBaseUrl(import.meta.env.VITE_WEBHARD_BASE_URL, 8083);
 const PAGE_SIZE = 30;
+const KARAOKE_QUEUE_STORAGE_KEY = "media.karaoke.queue";
 
 const TABS = [
   { value: "IMAGE", label: "이미지", icon: ImageIcon },
@@ -61,6 +62,7 @@ function App() {
 
   const visibleItems = items;
   const displayCounts = counts;
+  const karaokeRemoteSessionId = remoteSessionIdFromUrl();
 
   async function request(path, options = {}) {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -231,8 +233,10 @@ function App() {
         </nav>
       </header>
 
-      {page === "karaoke" ? (
-        <KaraokePage request={request} />
+      {karaokeRemoteSessionId ? (
+        <KaraokeRemotePage request={request} sessionId={karaokeRemoteSessionId} />
+      ) : page === "karaoke" ? (
+        <KaraokePage currentUser={currentUser} request={request} />
       ) : page === "youtube" ? (
         <YoutubeImportPage
           currentUser={currentUser}
@@ -375,14 +379,19 @@ function tabCount(counts, tabValue) {
   return counts.video || 0;
 }
 
-function KaraokePage({ request }) {
+function KaraokePage({ currentUser, request }) {
   const [items, setItems] = useState([]);
   const [query, setQuery] = useState("");
   const [quickNumber, setQuickNumber] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedQueueIndex, setSelectedQueueIndex] = useState(0);
+  const [focusArea, setFocusArea] = useState("list");
   const [queue, setQueue] = useState([]);
   const [currentItem, setCurrentItem] = useState(null);
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
+  const [timeTagDraft, setTimeTagDraft] = useState("");
+  const [remoteSession, setRemoteSession] = useState(null);
+  const [remoteSequence, setRemoteSequence] = useState(0);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [playing, setPlaying] = useState(false);
@@ -391,11 +400,51 @@ function KaraokePage({ request }) {
   const listRef = useRef(null);
   const timeTags = parseTimeTags(currentItem?.tags || []);
   const activeTimeIndex = activeTimeTagIndex(timeTags, currentVideoTime);
+  const canEditCurrentItem = canManageMedia(currentUser, currentItem);
 
   useEffect(() => {
     shellRef.current?.focus();
+    setQueue(readStoredKaraokeQueue());
     loadKaraoke("");
+    createRemoteSession();
   }, []);
+
+  useEffect(() => {
+    writeStoredKaraokeQueue(queue);
+    if (selectedQueueIndex >= queue.length) {
+      setSelectedQueueIndex(Math.max(queue.length - 1, 0));
+    }
+  }, [queue, selectedQueueIndex]);
+
+  useEffect(() => {
+    setTimeTagDraft(formatTimeTagDraft(currentItem?.tags || []));
+  }, [currentItem]);
+
+  useEffect(() => {
+    if (!remoteSession?.session_id) return undefined;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const data = await request(`/api/karaoke/remote/${remoteSession.session_id}/commands/?after=${remoteSequence}`);
+        if (stopped) return;
+        const commands = data.commands || [];
+        for (const command of commands) {
+          handleRemoteCommand(command);
+        }
+        if (commands.length) {
+          setRemoteSequence(Math.max(...commands.map((command) => Number(command.sequence || 0))));
+        }
+      } catch (error) {
+        if (!stopped) setMessage(error.message);
+      }
+    };
+    const timer = window.setInterval(poll, 1200);
+    poll();
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [remoteSession?.session_id, remoteSequence, queue, currentItem, currentVideoTime]);
 
   useEffect(() => {
     const handler = (event) => {
@@ -417,22 +466,22 @@ function KaraokePage({ request }) {
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        moveSelection(-2);
+        moveFocus(-1);
         return;
       }
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        moveSelection(2);
+        moveFocus(1);
         return;
       }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        moveSelection(-1);
+        moveFocusArea(-1);
         return;
       }
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        moveSelection(1);
+        moveFocusArea(1);
         return;
       }
       if (event.key === "Enter") {
@@ -442,8 +491,8 @@ function KaraokePage({ request }) {
         event.preventDefault();
         if (quickNumber) {
           searchQuickNumber();
-        } else if (items[selectedIndex]) {
-          playNow(items[selectedIndex]);
+        } else {
+          activateFocusedArea();
         }
         return;
       }
@@ -474,7 +523,7 @@ function KaraokePage({ request }) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [items, selectedIndex, quickNumber, queue, currentItem, currentVideoTime]);
+  }, [items, selectedIndex, selectedQueueIndex, focusArea, quickNumber, queue, currentItem, currentVideoTime]);
 
   useEffect(() => {
     const selected = listRef.current?.querySelector(`[data-karaoke-index="${selectedIndex}"]`);
@@ -505,6 +554,47 @@ function KaraokePage({ request }) {
     }
   }
 
+  async function createRemoteSession() {
+    try {
+      setRemoteSession(await request("/api/karaoke/remote/session/", { method: "POST", body: "{}" }));
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  function handleRemoteCommand(command) {
+    const type = String(command?.type || "");
+    const item = command?.payload?.item;
+    if (type === "PLAY_ITEM" && item) {
+      playNow(item);
+      return;
+    }
+    if (type === "RESERVE_ITEM" && item) {
+      reserve(item);
+      return;
+    }
+    if (type === "NEXT") {
+      playNextSong();
+      return;
+    }
+    if (type === "PREV_TAG") {
+      seekPreviousTimeTag();
+      return;
+    }
+    if (type === "NEXT_TAG") {
+      seekNextTimeTag();
+      return;
+    }
+    if (type === "TOGGLE_PLAY") {
+      togglePlay();
+      return;
+    }
+    if (type === "CLEAR_QUEUE") {
+      setQueue([]);
+      setMessage("리모컨에서 예약목록을 비웠습니다.");
+    }
+  }
+
   function submitSearch(event) {
     event.preventDefault();
     setQuickNumber("");
@@ -530,6 +620,50 @@ function KaraokePage({ request }) {
     setQuickNumber((current) => `${current}${value}`.slice(0, 6));
   }
 
+  function moveFocusArea(delta) {
+    const areas = ["list", "player", "keypad", "queue"];
+    setFocusArea((current) => {
+      const currentIndex = Math.max(areas.indexOf(current), 0);
+      return areas[(currentIndex + delta + areas.length) % areas.length];
+    });
+  }
+
+  function moveFocus(delta) {
+    if (focusArea === "list") {
+      moveSelection(delta);
+      return;
+    }
+    if (focusArea === "queue") {
+      setSelectedQueueIndex((current) => {
+        if (!queue.length) return 0;
+        return Math.min(Math.max(current + delta, 0), queue.length - 1);
+      });
+      return;
+    }
+    if (focusArea === "player") {
+      if (delta > 0) seekNextTimeTag();
+      else seekPreviousTimeTag();
+    }
+  }
+
+  function activateFocusedArea() {
+    if (focusArea === "list" && items[selectedIndex]) {
+      playNow(items[selectedIndex]);
+      return;
+    }
+    if (focusArea === "queue" && queue[selectedQueueIndex]) {
+      playReserved(selectedQueueIndex);
+      return;
+    }
+    if (focusArea === "player") {
+      togglePlay();
+      return;
+    }
+    if (focusArea === "keypad") {
+      searchQuickNumber();
+    }
+  }
+
   function moveSelection(delta) {
     setSelectedIndex((current) => {
       if (!items.length) return 0;
@@ -540,17 +674,27 @@ function KaraokePage({ request }) {
   function playNow(item) {
     setCurrentItem(item);
     setCurrentVideoTime(0);
+    setFocusArea("player");
     setPlaying(true);
     window.setTimeout(() => videoRef.current?.play().catch(() => undefined), 0);
   }
 
   function reserve(item) {
     setQueue((current) => current.some((entry) => entry.webhard_file_id === item.webhard_file_id) ? current : current.concat(item));
+    setFocusArea("queue");
     setMessage(`${item.title || item.display_name || item.file_name} 예약했습니다.`);
   }
 
   function removeReserved(item) {
     setQueue((current) => current.filter((entry) => entry.webhard_file_id !== item.webhard_file_id));
+  }
+
+  function playReserved(index) {
+    const item = queue[index];
+    if (!item) return;
+    setQueue((current) => current.filter((_, entryIndex) => entryIndex !== index));
+    setSelectedQueueIndex(0);
+    playNow(item);
   }
 
   function togglePlay() {
@@ -568,6 +712,8 @@ function KaraokePage({ request }) {
   function playNextSong() {
     const [next, ...rest] = queue;
     if (!next) {
+      setPlaying(false);
+      setFocusArea("list");
       setMessage("예약된 다음 곡이 없습니다.");
       return;
     }
@@ -597,13 +743,42 @@ function KaraokePage({ request }) {
     seekToTimeTag(previous.seconds);
   }
 
+  async function saveTimeTags() {
+    if (!currentItem) return;
+    const preservedTags = (currentItem.tags || []).filter((tag) => !isTimeTag(tag));
+    const nextTimeTags = timeTagDraft
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map(normalizeTimeTagLine)
+      .filter(Boolean);
+    const nextTags = uniqueTags(preservedTags.concat(nextTimeTags));
+    setLoading(true);
+    setMessage("타임태그를 저장하는 중입니다.");
+    try {
+      const data = await request(`/api/media/${currentItem.webhard_file_id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ tags: nextTags })
+      });
+      const updated = data.item;
+      setCurrentItem(updated);
+      setItems((current) => current.map((entry) => entry.webhard_file_id === updated.webhard_file_id ? updated : entry));
+      setQueue((current) => current.map((entry) => entry.webhard_file_id === updated.webhard_file_id ? updated : entry));
+      setMessage("타임태그를 저장했습니다.");
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="karaoke-shell" ref={shellRef} tabIndex={-1}>
       <section className="karaoke-search-panel">
         <div>
           <span className="kind-badge">노래방 모드</span>
           <h1>리모컨으로 고르고 예약하기</h1>
-          <p>방향키로 이동, Enter로 바로 재생, 숫자키로 KY번호를 빠르게 검색합니다.</p>
+          <p>방향키 좌우로 영역 이동, 상하로 선택 이동, Enter로 실행합니다. 숫자키는 KY번호 검색입니다.</p>
         </div>
         <form className="karaoke-search" onSubmit={submitSearch}>
           <label>
@@ -618,11 +793,25 @@ function KaraokePage({ request }) {
         </form>
       </section>
 
+      <section className="mobile-remote-panel">
+        <strong>모바일 조작 패널</strong>
+        {remoteSession?.session_id && (
+          <p className="remote-session-url">휴대폰 리모컨: {karaokeRemoteUrl(remoteSession.session_id)}</p>
+        )}
+        <div className="mobile-remote-actions">
+          <button type="button" onClick={() => items[selectedIndex] && reserve(items[selectedIndex])}>선택곡 예약</button>
+          <button type="button" onClick={() => items[selectedIndex] && playNow(items[selectedIndex])}>선택곡 재생</button>
+          <button type="button" onClick={seekPreviousTimeTag} disabled={!timeTags.length}>이전태그</button>
+          <button type="button" onClick={seekNextTimeTag} disabled={!timeTags.length}>간주점프</button>
+          <button type="button" onClick={playNextSong} disabled={!queue.length}>다음곡</button>
+        </div>
+      </section>
+
       <section className="karaoke-grid">
-        <div className="karaoke-list-panel">
+        <div className={focusArea === "list" ? "karaoke-list-panel focus-area" : "karaoke-list-panel"}>
           <div className="karaoke-list-head">
             <strong>곡 목록</strong>
-            <span>{items.length}곡</span>
+            <span>{items.length}곡 · {focusArea === "list" ? "선택 중" : "좌우키로 이동"}</span>
           </div>
           <div className="karaoke-list" ref={listRef}>
             {items.map((item, index) => (
@@ -645,7 +834,7 @@ function KaraokePage({ request }) {
         </div>
 
         <div className="karaoke-stage">
-          <section className="karaoke-player-panel">
+          <section className={focusArea === "player" ? "karaoke-player-panel focus-area" : "karaoke-player-panel"}>
             <div className="karaoke-player">
               {currentItem?.content_url ? (
                 <video
@@ -686,10 +875,19 @@ function KaraokePage({ request }) {
                 ))}
               </div>
             )}
+            {currentItem && canEditCurrentItem && (
+              <div className="time-tag-editor">
+                <label>
+                  타임태그 편집
+                  <textarea className="input textarea" value={timeTagDraft} onChange={(event) => setTimeTagDraft(event.target.value)} placeholder="00:35 전주끝&#10;01:12 1절&#10;02:28 간주" />
+                </label>
+                <button className="btn primary" type="button" onClick={saveTimeTags} disabled={loading}>타임태그 저장</button>
+              </div>
+            )}
           </section>
 
           <section className="karaoke-side-panel">
-            <div className="quick-number">
+            <div className={focusArea === "keypad" ? "quick-number focus-area" : "quick-number"}>
               <strong>KY번호 빠른 입력</strong>
               <div className="quick-number-display">{quickNumber || "숫자키 입력"}</div>
               <div className="quick-keypad">
@@ -701,19 +899,20 @@ function KaraokePage({ request }) {
               <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
             </div>
 
-            <div className="reservation-panel">
+            <div className={focusArea === "queue" ? "reservation-panel focus-area" : "reservation-panel"}>
               <div className="karaoke-list-head">
                 <strong>예약 목록</strong>
                 <span>{queue.length}곡</span>
               </div>
               <div className="reservation-list">
                 {queue.map((item, index) => (
-                  <article key={item.webhard_file_id}>
+                  <article className={index === selectedQueueIndex ? "active" : ""} key={item.webhard_file_id}>
                     <span>{index + 1}</span>
                     <div>
                       <strong>{item.title || item.display_name || item.file_name}</strong>
                       <small>{karaokeArtist(item)}</small>
                     </div>
+                    <button className="btn icon-only" type="button" onClick={() => playReserved(index)} aria-label="예약 재생"><Play size={16} /></button>
                     <button className="btn icon-only" type="button" onClick={() => removeReserved(item)} aria-label="예약 삭제"><Trash2 size={16} /></button>
                   </article>
                 ))}
@@ -724,6 +923,129 @@ function KaraokePage({ request }) {
         </div>
       </section>
 
+      {message && <p className="message karaoke-message">{message}</p>}
+    </main>
+  );
+}
+
+function KaraokeRemotePage({ request, sessionId }) {
+  const [items, setItems] = useState([]);
+  const [query, setQuery] = useState("");
+  const [quickNumber, setQuickNumber] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    search("");
+  }, [sessionId]);
+
+  async function search(nextQuery = query) {
+    setLoading(true);
+    setMessage("곡을 검색하는 중입니다.");
+    try {
+      const params = new URLSearchParams({ content_kind: "KARAOKE", limit: "40", offset: "0", sort: "recent" });
+      if (nextQuery.trim()) params.set("q", normalizeKaraokeQuery(nextQuery));
+      const data = await request(`/api/media/?${params.toString()}`);
+      setItems(data.items || []);
+      setMessage((data.items || []).length ? "" : "검색 결과가 없습니다.");
+    } catch (error) {
+      setItems([]);
+      setMessage(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function submitSearch(event) {
+    event.preventDefault();
+    search(query);
+  }
+
+  async function sendCommand(type, item = null) {
+    setMessage("TV로 명령을 보내는 중입니다.");
+    try {
+      await request(`/api/karaoke/remote/${sessionId}/command/`, {
+        method: "POST",
+        body: JSON.stringify({ type, payload: item ? { item } : {} })
+      });
+      setMessage("TV에 명령을 보냈습니다.");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  function pressKeypad(value) {
+    if (value === "clear") {
+      setQuickNumber("");
+      return;
+    }
+    if (value === "back") {
+      setQuickNumber((current) => current.slice(0, -1));
+      return;
+    }
+    setQuickNumber((current) => `${current}${value}`.slice(0, 6));
+  }
+
+  function searchQuickNumber() {
+    if (!quickNumber) return;
+    const nextQuery = `KY.${quickNumber}`;
+    setQuery(nextQuery);
+    search(nextQuery);
+  }
+
+  return (
+    <main className="karaoke-remote-shell">
+      <section className="karaoke-search-panel">
+        <div>
+          <span className="kind-badge">모바일 리모컨</span>
+          <h1>TV 노래방 제어</h1>
+          <p>세션 {sessionId}에 연결합니다. 같은 계정으로 로그인되어 있어야 합니다.</p>
+        </div>
+        <form className="karaoke-search" onSubmit={submitSearch}>
+          <label>
+            곡 검색
+            <span className="search-input-wrap">
+              <Search size={18} />
+              <input className="input karaoke-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="제목, 가수, KY번호" />
+            </span>
+          </label>
+          <button className="btn primary karaoke-action" type="submit" disabled={loading}>검색</button>
+        </form>
+      </section>
+
+      <section className="remote-control-pad">
+        <button type="button" onClick={() => sendCommand("PREV_TAG")}>이전태그</button>
+        <button type="button" onClick={() => sendCommand("TOGGLE_PLAY")}>재생/정지</button>
+        <button type="button" onClick={() => sendCommand("NEXT_TAG")}>간주점프</button>
+        <button type="button" onClick={() => sendCommand("NEXT")}>다음곡</button>
+        <button type="button" onClick={() => sendCommand("CLEAR_QUEUE")}>예약비움</button>
+      </section>
+
+      <section className="remote-keypad-panel">
+        <strong>KY번호 입력</strong>
+        <div className="quick-number-display">{quickNumber || "숫자 입력"}</div>
+        <div className="quick-keypad">
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((value) => <button type="button" key={value} onClick={() => pressKeypad(value)}>{value}</button>)}
+          <button type="button" onClick={() => pressKeypad("back")}>←</button>
+          <button type="button" onClick={() => pressKeypad("0")}>0</button>
+          <button type="button" onClick={() => pressKeypad("clear")}>C</button>
+        </div>
+        <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
+      </section>
+
+      <section className="remote-song-list">
+        {items.map((item) => (
+          <article key={item.webhard_file_id}>
+            <div>
+              <span className="karaoke-number">{karaokeNumber(item) || "-"}</span>
+              <strong>{item.title || item.display_name || item.file_name}</strong>
+              <small>{karaokeArtist(item)}</small>
+            </div>
+            <button className="btn primary" type="button" onClick={() => sendCommand("PLAY_ITEM", item)}><Play size={16} /> TV 재생</button>
+            <button className="btn" type="button" onClick={() => sendCommand("RESERVE_ITEM", item)}><Plus size={16} /> 예약</button>
+          </article>
+        ))}
+      </section>
       {message && <p className="message karaoke-message">{message}</p>}
     </main>
   );
@@ -1428,6 +1750,7 @@ function normalizeKaraokeQuery(value) {
 }
 
 function karaokeNumber(item) {
+  if (item?.karaoke_number) return item.karaoke_number;
   const tags = item?.tags || [];
   for (const tag of tags) {
     const match = String(tag || "").match(/KY\.?(\d{3,6})/i);
@@ -1439,7 +1762,70 @@ function karaokeNumber(item) {
 }
 
 function karaokeArtist(item) {
+  if (item?.karaoke_artist) return item.karaoke_artist;
   return item?.channel_name || item?.album || (item?.tags || []).filter((tag) => !/^KY\.?\d+/i.test(String(tag)) && !String(tag).includes(":")).slice(0, 2).join(", ") || "가수 정보 없음";
+}
+
+function remoteSessionIdFromUrl() {
+  if (typeof window === "undefined") return "";
+  return new URLSearchParams(window.location.search).get("karaoke_remote") || "";
+}
+
+function karaokeRemoteUrl(sessionId) {
+  if (typeof window === "undefined") return "";
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("karaoke_remote", sessionId);
+  return url.toString();
+}
+
+function readStoredKaraokeQueue() {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(KARAOKE_QUEUE_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.filter((item) => item?.webhard_file_id).slice(0, 50) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredKaraokeQueue(queue) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(KARAOKE_QUEUE_STORAGE_KEY, JSON.stringify((queue || []).slice(0, 50)));
+  } catch {
+    // localStorage can be blocked on some embedded TV browsers.
+  }
+}
+
+function formatTimeTagDraft(tags) {
+  return (tags || []).filter(isTimeTag).join("\n");
+}
+
+function isTimeTag(tag) {
+  return parseTimeTags([tag]).length > 0;
+}
+
+function normalizeTimeTagLine(line) {
+  const text = String(line || "").trim();
+  const seconds = parseTimeInput(text.split(/\s+/)[0]);
+  if (seconds == null) {
+    const parsed = parseTimeTags([text])[0];
+    return parsed ? text : "";
+  }
+  const label = text.replace(/^\S+/, "").trim();
+  return label ? `${formatMediaTime(seconds)} ${label}` : formatMediaTime(seconds);
+}
+
+function uniqueTags(tags) {
+  const result = [];
+  for (const tag of tags || []) {
+    const text = String(tag || "").trim();
+    if (text && !result.includes(text)) {
+      result.push(text);
+    }
+  }
+  return result;
 }
 
 function parseTimeInput(value) {

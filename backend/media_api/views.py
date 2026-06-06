@@ -4,7 +4,7 @@ import re
 import subprocess
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -16,7 +16,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpRe
 from django.views.decorators.csrf import csrf_exempt
 
 from .auth import CurrentUser, auth_token, require_user
-from .mongo import media_collection, mongo_client
+from .mongo import karaoke_remote_collection, media_collection, mongo_client
 from .webhard import stream_webhard_file, sync_from_webhard, sync_one_from_webhard
 from .youtube import check_download_tools, import_youtube_item, preview_youtube
 
@@ -256,20 +256,16 @@ def media_list(request: HttpRequest) -> JsonResponse:
         query["favorite"] = True
     if request.GET.get("q"):
         keyword = request.GET["q"].strip()[:80]
-        pattern = re.escape(keyword)
     if request.GET.get("q") and keyword:
-        search_query = {
-            "$or": [
-                {"title": {"$regex": pattern, "$options": "i"}},
-                {"display_name": {"$regex": pattern, "$options": "i"}},
-                {"file_name": {"$regex": pattern, "$options": "i"}},
-                {"tags": {"$regex": pattern, "$options": "i"}},
-                {"album": {"$regex": pattern, "$options": "i"}},
-                {"description": {"$regex": pattern, "$options": "i"}},
-                {"channel_name": {"$regex": pattern, "$options": "i"}},
-                {"owner_user_id": {"$regex": pattern, "$options": "i"}},
-            ]
-        }
+        search_terms = karaoke_search_terms(keyword) if content_kind == "KARAOKE" else [keyword]
+        search_patterns = [re.escape(term) for term in search_terms]
+        search_fields = ["title", "display_name", "file_name", "tags", "album", "description", "channel_name", "owner_user_id"]
+        search_query = {"$or": []}
+        for field_name in search_fields:
+            search_query["$or"].extend(
+                {field_name: {"$regex": term_pattern, "$options": "i"}}
+                for term_pattern in search_patterns
+            )
         if "$or" in query:
             access_query = {"$or": query.pop("$or")}
             query["$and"] = [access_query, search_query]
@@ -464,6 +460,95 @@ def media_thumbnail(request: HttpRequest, webhard_file_id: int) -> JsonResponse 
     return ok({"thumbnail": body.get("data") or {}, "item": serialize_media(synced.get("item"))})
 
 
+@csrf_exempt
+def karaoke_remote_session(request: HttpRequest) -> JsonResponse | HttpResponse:
+    if request.method == "OPTIONS":
+        return HttpResponse(status=204)
+    if request.method != "POST":
+        return bad_request("POST is required")
+    user = require_user(request)
+    if not isinstance(user, CurrentUser):
+        return user
+
+    now = datetime.utcnow()
+    session_id = uuid.uuid4().hex[:10]
+    item = {
+        "session_id": session_id,
+        "owner_user_id": user.user_id,
+        "created_at": now,
+        "updated_at": now,
+        "expires_at": now + timedelta(hours=12),
+        "commands": [],
+        "next_sequence": 1,
+    }
+    karaoke_remote_collection().insert_one(item)
+    return ok({"session_id": session_id, "expires_at": item["expires_at"].isoformat()})
+
+
+@csrf_exempt
+def karaoke_remote_command(request: HttpRequest, session_id: str) -> JsonResponse | HttpResponse:
+    if request.method == "OPTIONS":
+        return HttpResponse(status=204)
+    if request.method != "POST":
+        return bad_request("POST is required")
+    user = require_user(request)
+    if not isinstance(user, CurrentUser):
+        return user
+
+    body = json_body(request)
+    command_type = str(body.get("type") or "").strip().upper()
+    if command_type not in {"PLAY_ITEM", "RESERVE_ITEM", "NEXT", "PREV_TAG", "NEXT_TAG", "TOGGLE_PLAY", "CLEAR_QUEUE"}:
+        return bad_request("invalid remote command")
+    payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+
+    collection = karaoke_remote_collection()
+    session = collection.find_one({"session_id": session_id})
+    if not session:
+        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "remote session not found"}, status=404)
+    if str(session.get("owner_user_id") or "") != user.user_id and not user.is_admin:
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "remote session owner permission is required"}, status=403)
+    sequence = int(session.get("next_sequence") or 1)
+    command = {
+        "sequence": sequence,
+        "type": command_type,
+        "payload": sanitize_remote_payload(user, payload),
+        "created_by": user.user_id,
+        "created_at": datetime.utcnow(),
+    }
+    commands = list(session.get("commands") or [])[-49:] + [command]
+    collection.update_one(
+        {"session_id": session_id},
+        {"$set": {"commands": commands, "updated_at": datetime.utcnow(), "expires_at": datetime.utcnow() + timedelta(hours=12), "next_sequence": sequence + 1}},
+    )
+    return ok({"sequence": sequence})
+
+
+def karaoke_remote_commands(request: HttpRequest, session_id: str) -> JsonResponse | HttpResponse:
+    if request.method != "GET":
+        return bad_request("GET is required")
+    user = require_user(request)
+    if not isinstance(user, CurrentUser):
+        return user
+
+    session = karaoke_remote_collection().find_one({"session_id": session_id})
+    if not session:
+        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "remote session not found"}, status=404)
+    if str(session.get("owner_user_id") or "") != user.user_id and not user.is_admin:
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "remote session owner permission is required"}, status=403)
+
+    after = int_param(request, "after", 0)
+    commands = [
+        serialize_remote_command(command)
+        for command in session.get("commands") or []
+        if int(command.get("sequence") or 0) > after
+    ]
+    karaoke_remote_collection().update_one(
+        {"session_id": session_id},
+        {"$set": {"updated_at": datetime.utcnow(), "expires_at": datetime.utcnow() + timedelta(hours=12)}},
+    )
+    return ok({"session_id": session_id, "commands": commands, "latest_sequence": int(session.get("next_sequence") or 1) - 1})
+
+
 def media_file_proxy(request: HttpRequest, webhard_file_id: int, file_kind: str) -> JsonResponse | HttpResponse:
     user = require_user(request)
     if not isinstance(user, CurrentUser):
@@ -513,6 +598,9 @@ def serialize_media(item: dict[str, Any] | None) -> dict[str, Any]:
     result["like_count"] = max(int(result.get("like_count") or 0), 0)
     result["liked"] = bool(result.get("liked"))
     result["subscribed"] = bool(result.get("subscribed"))
+    result["karaoke_number"] = karaoke_number(result)
+    result["karaoke_artist"] = karaoke_artist(result)
+    result["time_markers"] = karaoke_time_markers(result.get("tags") or [])
     thumbnail_url = str(result.get("thumbnail_url") or "")
     content_url = str(result.get("content_url") or "")
     if result.get("content_kind") == "VIDEO" and (thumbnail_url == content_url or "/file/content/" in thumbnail_url):
@@ -875,6 +963,57 @@ def channel_name(item: dict[str, Any]) -> str:
     return f"{owner} 채널"
 
 
+def karaoke_number(item: dict[str, Any]) -> str:
+    values = list(item.get("tags") or [])
+    values.extend([item.get("title"), item.get("display_name"), item.get("file_name")])
+    for value in values:
+        match = re.search(r"KY\.?(\d{3,6})", str(value or ""), flags=re.IGNORECASE)
+        if match:
+            return f"KY.{match.group(1)}"
+    return ""
+
+
+def karaoke_artist(item: dict[str, Any]) -> str:
+    if item.get("channel_name"):
+        return str(item.get("channel_name"))
+    if item.get("album"):
+        return str(item.get("album"))
+    for tag in item.get("tags") or []:
+        text = str(tag or "").strip()
+        if text and not re.match(r"KY\.?\d+", text, flags=re.IGNORECASE) and not parse_time_marker(text):
+            return text
+    return ""
+
+
+def karaoke_time_markers(tags: list[Any]) -> list[dict[str, Any]]:
+    markers = []
+    seen = set()
+    for tag in tags:
+        marker = parse_time_marker(str(tag or ""))
+        if not marker:
+            continue
+        key = marker["seconds"]
+        if key in seen:
+            continue
+        seen.add(key)
+        markers.append(marker)
+    markers.sort(key=lambda item: item["seconds"])
+    return markers
+
+
+def parse_time_marker(value: str) -> dict[str, Any] | None:
+    text = str(value or "").strip()
+    match = re.search(r"(?:^|[^\d])(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d(?:\.\d{1,3})?)(?!\d)", text)
+    if not match:
+        return None
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2))
+    seconds = float(match.group(3))
+    total_seconds = round(hours * 3600 + minutes * 60 + seconds, 3)
+    label = re.sub(re.escape(match.group(0)), " ", text, count=1).strip() or text
+    return {"seconds": total_seconds, "label": label, "raw": text}
+
+
 def git_commit() -> str:
     env_commit = os.getenv("GIT_COMMIT") or os.getenv("VITE_GIT_COMMIT")
     if env_commit:
@@ -900,6 +1039,42 @@ def int_param(request: HttpRequest, name: str, default: int) -> int:
         return int(request.GET.get(name) or default)
     except ValueError:
         return default
+
+
+def karaoke_search_terms(keyword: str) -> list[str]:
+    text = str(keyword or "").strip()
+    terms = [text] if text else []
+    match = re.fullmatch(r"(?:KY\.?)?(\d{3,6})", text, flags=re.IGNORECASE)
+    if match:
+        number = match.group(1)
+        terms.extend([number, f"KY.{number}", f"KY{number}"])
+    result = []
+    for term in terms:
+        if term and term not in result:
+            result.append(term)
+    return result
+
+
+def sanitize_remote_payload(user: CurrentUser, payload: dict[str, Any]) -> dict[str, Any]:
+    item = payload.get("item") if isinstance(payload.get("item"), dict) else None
+    result: dict[str, Any] = {}
+    if item:
+        try:
+            webhard_file_id = int(item.get("webhard_file_id") or 0)
+        except (TypeError, ValueError):
+            webhard_file_id = 0
+        media_item = media_collection().find_one(readable_media_query(user, webhard_file_id)) if webhard_file_id else None
+        if media_item:
+            result["item"] = serialize_media(media_item)
+    return result
+
+
+def serialize_remote_command(command: dict[str, Any]) -> dict[str, Any]:
+    result = dict(command)
+    created_at = result.get("created_at")
+    if isinstance(created_at, datetime):
+        result["created_at"] = created_at.isoformat()
+    return result
 
 
 def optional_seconds(value: Any) -> float | bool | None:
