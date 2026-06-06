@@ -16,7 +16,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpRe
 from django.views.decorators.csrf import csrf_exempt
 
 from .auth import CurrentUser, auth_token, require_user
-from .mongo import karaoke_remote_collection, media_collection, mongo_client
+from .mongo import karaoke_remote_collection, media_collection, media_user_state_collection, mongo_client
 from .webhard import stream_webhard_file, sync_from_webhard, sync_one_from_webhard
 from .youtube import check_download_tools, import_youtube_item, preview_youtube
 
@@ -253,7 +253,8 @@ def media_list(request: HttpRequest) -> JsonResponse:
     if request.GET.get("album"):
         query["album"] = request.GET["album"].strip()
     if request.GET.get("favorite") in {"true", "1", "Y"}:
-        query["favorite"] = True
+        favorite_ids = favorite_media_ids(user)
+        query["webhard_file_id"] = {"$in": favorite_ids}
     if request.GET.get("q"):
         keyword = request.GET["q"].strip()[:80]
     if request.GET.get("q") and keyword:
@@ -288,7 +289,9 @@ def media_list(request: HttpRequest) -> JsonResponse:
     if offset == 0 or request.GET.get("include_counts") in {"true", "1", "Y"}:
         counts = media_counts(collection, count_base_query)
     cursor = collection.find(query, media_list_projection()).sort(sort).skip(offset).limit(limit + 1)
-    fetched_items = [serialize_media(item) for item in cursor]
+    raw_items = list(cursor)
+    state_map = user_state_map(user, [int(item.get("webhard_file_id") or 0) for item in raw_items])
+    fetched_items = [serialize_media(item, user_state=state_map.get(int(item.get("webhard_file_id") or 0))) for item in raw_items]
     has_more = len(fetched_items) > limit
     items = fetched_items[:limit]
     return ok({
@@ -317,7 +320,7 @@ def media_detail(request: HttpRequest, webhard_file_id: int) -> JsonResponse | H
         item = media_collection().find_one(query)
         if not item:
             return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "media not found"}, status=404)
-        return ok({"item": serialize_media(item)})
+        return ok({"item": serialize_media(item, user_state=user_state(user, webhard_file_id))})
 
     body = json_body(request)
     item = media_collection().find_one(query)
@@ -327,14 +330,12 @@ def media_detail(request: HttpRequest, webhard_file_id: int) -> JsonResponse | H
     if edit_fields.intersection(body.keys()) and not can_manage_media(user, item):
         return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "owner or admin permission is required"}, status=403)
 
-    update: dict[str, Any] = {"updated_at": datetime.utcnow()}
+    update: dict[str, Any] = {}
     increments: dict[str, int] = {}
     if "tags" in body:
         update["tags"] = normalize_tags(body["tags"])
     if "album" in body:
         update["album"] = str(body.get("album") or "").strip()[:100]
-    if "favorite" in body:
-        update["favorite"] = bool(body.get("favorite"))
     if "title" in body:
         update["title"] = str(body.get("title") or "").strip()[:180]
     if "description" in body:
@@ -343,21 +344,30 @@ def media_detail(request: HttpRequest, webhard_file_id: int) -> JsonResponse | H
         update["channel_name"] = str(body.get("channel_name") or "").strip()[:120]
     if "subscribed" in body:
         update["subscribed"] = bool(body.get("subscribed"))
+    if "favorite" in body:
+        set_user_state(user, webhard_file_id, {"favorite": bool(body.get("favorite"))})
     if "liked" in body:
         liked = bool(body.get("liked"))
-        update["liked"] = liked
-        increments["like_count"] = 1 if liked else -1
+        previous = user_state(user, webhard_file_id)
+        previous_liked = bool(previous.get("liked")) if previous else False
+        set_user_state(user, webhard_file_id, {"liked": liked})
+        if liked != previous_liked:
+            increments["like_count"] = 1 if liked else -1
     if body.get("increment_view"):
         increments["view_count"] = 1
 
-    patch: dict[str, Any] = {"$set": update}
-    if increments:
-        patch["$inc"] = increments
-    result = media_collection().update_one(query, patch)
-    if result.matched_count == 0:
-        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "media not found"}, status=404)
+    if update or increments:
+        update["updated_at"] = datetime.utcnow()
+        patch: dict[str, Any] = {"$set": update}
+        if increments:
+            patch["$inc"] = increments
+        result = media_collection().update_one(query, patch)
+        if increments.get("like_count", 0) < 0:
+            media_collection().update_one(query, {"$max": {"like_count": 0}})
+        if result.matched_count == 0:
+            return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "media not found"}, status=404)
     item = media_collection().find_one(query)
-    return ok({"item": serialize_media(item)})
+    return ok({"item": serialize_media(item, user_state=user_state(user, webhard_file_id))})
 
 
 @csrf_exempt
@@ -404,6 +414,7 @@ def media_delete(request: HttpRequest, webhard_file_id: int) -> JsonResponse | H
         )
 
     media_collection().delete_one({"webhard_file_id": webhard_file_id})
+    media_user_state_collection().delete_many({"webhard_file_id": webhard_file_id})
     return ok({"file_id": webhard_file_id})
 
 
@@ -471,7 +482,7 @@ def karaoke_remote_session(request: HttpRequest) -> JsonResponse | HttpResponse:
         return user
 
     now = datetime.utcnow()
-    session_id = uuid.uuid4().hex[:10]
+    session_id = uuid.uuid4().hex
     item = {
         "session_id": session_id,
         "owner_user_id": user.user_id,
@@ -507,6 +518,8 @@ def karaoke_remote_command(request: HttpRequest, session_id: str) -> JsonRespons
         return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "remote session not found"}, status=404)
     if str(session.get("owner_user_id") or "") != user.user_id and not user.is_admin:
         return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "remote session owner permission is required"}, status=403)
+    if is_remote_rate_limited(session):
+        return JsonResponse({"ok": False, "code": "RATE_LIMITED", "message": "remote command rate limit exceeded"}, status=429)
     sequence = int(session.get("next_sequence") or 1)
     command = {
         "sequence": sequence,
@@ -521,6 +534,28 @@ def karaoke_remote_command(request: HttpRequest, session_id: str) -> JsonRespons
         {"$set": {"commands": commands, "updated_at": datetime.utcnow(), "expires_at": datetime.utcnow() + timedelta(hours=12), "next_sequence": sequence + 1}},
     )
     return ok({"sequence": sequence})
+
+
+@csrf_exempt
+def karaoke_remote_heartbeat(request: HttpRequest, session_id: str) -> JsonResponse | HttpResponse:
+    if request.method == "OPTIONS":
+        return HttpResponse(status=204)
+    if request.method != "POST":
+        return bad_request("POST is required")
+    user = require_user(request)
+    if not isinstance(user, CurrentUser):
+        return user
+    session = karaoke_remote_collection().find_one({"session_id": session_id})
+    if not session:
+        return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "remote session not found"}, status=404)
+    if str(session.get("owner_user_id") or "") != user.user_id and not user.is_admin:
+        return JsonResponse({"ok": False, "code": "FORBIDDEN", "message": "remote session owner permission is required"}, status=403)
+    expires_at = datetime.utcnow() + timedelta(hours=12)
+    karaoke_remote_collection().update_one(
+        {"session_id": session_id},
+        {"$set": {"updated_at": datetime.utcnow(), "expires_at": expires_at}},
+    )
+    return ok({"session_id": session_id, "expires_at": expires_at.isoformat()})
 
 
 def karaoke_remote_commands(request: HttpRequest, session_id: str) -> JsonResponse | HttpResponse:
@@ -542,10 +577,6 @@ def karaoke_remote_commands(request: HttpRequest, session_id: str) -> JsonRespon
         for command in session.get("commands") or []
         if int(command.get("sequence") or 0) > after
     ]
-    karaoke_remote_collection().update_one(
-        {"session_id": session_id},
-        {"$set": {"updated_at": datetime.utcnow(), "expires_at": datetime.utcnow() + timedelta(hours=12)}},
-    )
     return ok({"session_id": session_id, "commands": commands, "latest_sequence": int(session.get("next_sequence") or 1) - 1})
 
 
@@ -586,7 +617,7 @@ def albums(request: HttpRequest) -> JsonResponse:
     return ok({"items": values})
 
 
-def serialize_media(item: dict[str, Any] | None) -> dict[str, Any]:
+def serialize_media(item: dict[str, Any] | None, user_state: dict[str, Any] | None = None) -> dict[str, Any]:
     if not item:
         return {}
     result = dict(item)
@@ -596,7 +627,9 @@ def serialize_media(item: dict[str, Any] | None) -> dict[str, Any]:
     result["channel_name"] = result.get("channel_name") or channel_name(result)
     result["view_count"] = max(int(result.get("view_count") or 0), 0)
     result["like_count"] = max(int(result.get("like_count") or 0), 0)
-    result["liked"] = bool(result.get("liked"))
+    state = user_state or {}
+    result["favorite"] = bool(state.get("favorite"))
+    result["liked"] = bool(state.get("liked"))
     result["subscribed"] = bool(result.get("subscribed"))
     result["karaoke_number"] = karaoke_number(result)
     result["karaoke_artist"] = karaoke_artist(result)
@@ -646,6 +679,42 @@ def media_list_projection() -> dict[str, int]:
         "liked": 1,
         "subscribed": 1,
     }
+
+
+def favorite_media_ids(user: CurrentUser) -> list[int]:
+    return [
+        int(item)
+        for item in media_user_state_collection().distinct("webhard_file_id", {"user_id": user.user_id, "favorite": True})
+        if item
+    ]
+
+
+def user_state(user: CurrentUser, webhard_file_id: int) -> dict[str, Any] | None:
+    return media_user_state_collection().find_one({"user_id": user.user_id, "webhard_file_id": int(webhard_file_id)})
+
+
+def user_state_map(user: CurrentUser, webhard_file_ids: list[int]) -> dict[int, dict[str, Any]]:
+    ids = [int(item) for item in webhard_file_ids if item]
+    if not ids:
+        return {}
+    states = media_user_state_collection().find({"user_id": user.user_id, "webhard_file_id": {"$in": ids}})
+    return {int(state.get("webhard_file_id")): state for state in states if state.get("webhard_file_id")}
+
+
+def set_user_state(user: CurrentUser, webhard_file_id: int, patch: dict[str, Any]) -> None:
+    update = {"updated_at": datetime.utcnow(), **patch}
+    media_user_state_collection().update_one(
+        {"user_id": user.user_id, "webhard_file_id": int(webhard_file_id)},
+        {
+            "$set": update,
+            "$setOnInsert": {
+                "user_id": user.user_id,
+                "webhard_file_id": int(webhard_file_id),
+                "created_at": datetime.utcnow(),
+            },
+        },
+        upsert=True,
+    )
 
 
 def readable_media_query(user: CurrentUser, webhard_file_id: int | None = None) -> dict[str, Any]:
@@ -893,6 +962,13 @@ def serialize_youtube_job(job: dict[str, Any] | None) -> dict[str, Any]:
     if not job:
         return {}
     items = [serialize_youtube_job_item(item) for item in job.get("items") or []]
+    item_count = int(job.get("item_count") or len(items))
+    downloaded_count = sum(1 for item in items if item.get("status") == "SAVED")
+    failed_count = sum(1 for item in items if item.get("status") == "FAILED")
+    running_count = sum(1 for item in items if item.get("status") == "RUNNING")
+    queued_count = sum(1 for item in items if item.get("status") == "QUEUED")
+    finished_count = downloaded_count + failed_count
+    active_item = next((item for item in items if item.get("status") == "RUNNING"), None)
     return {
         "job_id": job.get("job_id"),
         "status": job.get("status"),
@@ -900,9 +976,14 @@ def serialize_youtube_job(job: dict[str, Any] | None) -> dict[str, Any]:
         "title": job.get("title") or "",
         "playlist_id": job.get("playlist_id") or "",
         "playlist_title": job.get("playlist_title") or "",
-        "item_count": int(job.get("item_count") or len(items)),
-        "downloaded_count": int(job.get("downloaded_count") or 0),
-        "failed_count": int(job.get("failed_count") or 0),
+        "item_count": item_count,
+        "downloaded_count": downloaded_count,
+        "failed_count": failed_count,
+        "running_count": running_count,
+        "queued_count": queued_count,
+        "finished_count": finished_count,
+        "progress_percent": round((finished_count / item_count) * 100, 1) if item_count else 0,
+        "active_item": active_item,
         "items": items,
         "result": youtube_job_result(job, items),
         "created_at": job.get("created_at").isoformat() if isinstance(job.get("created_at"), datetime) else "",
@@ -912,6 +993,7 @@ def serialize_youtube_job(job: dict[str, Any] | None) -> dict[str, Any]:
 
 def serialize_youtube_job_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
+        "order_no": int(item.get("order_no") or 0),
         "youtube_video_id": item.get("youtube_video_id") or "",
         "title": item.get("title") or item.get("youtube_video_id") or "",
         "thumbnail_url": item.get("thumbnail_url") or "",
@@ -921,6 +1003,8 @@ def serialize_youtube_job_item(item: dict[str, Any]) -> dict[str, Any]:
         "file_id": item.get("file_id"),
         "webhard_file_id": item.get("file_id"),
         "message": item.get("message") or "",
+        "started_at": item.get("started_at").isoformat() if isinstance(item.get("started_at"), datetime) else "",
+        "finished_at": item.get("finished_at").isoformat() if isinstance(item.get("finished_at"), datetime) else "",
     }
 
 
@@ -1053,6 +1137,16 @@ def karaoke_search_terms(keyword: str) -> list[str]:
         if term and term not in result:
             result.append(term)
     return result
+
+
+def is_remote_rate_limited(session: dict[str, Any]) -> bool:
+    now = datetime.utcnow()
+    recent_count = 0
+    for command in session.get("commands") or []:
+        created_at = command.get("created_at")
+        if isinstance(created_at, datetime) and (now - created_at).total_seconds() <= 10:
+            recent_count += 1
+    return recent_count >= 20
 
 
 def sanitize_remote_payload(user: CurrentUser, payload: dict[str, Any]) -> dict[str, Any]:

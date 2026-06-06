@@ -6,6 +6,7 @@ from django.conf import settings
 _client: MongoClient | None = None
 _media_collection: Collection | None = None
 _karaoke_remote_collection: Collection | None = None
+_media_user_state_collection: Collection | None = None
 
 
 def mongo_client() -> MongoClient:
@@ -44,3 +45,16 @@ def karaoke_remote_collection():
     collection.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0)
     _karaoke_remote_collection = collection
     return _karaoke_remote_collection
+
+
+def media_user_state_collection():
+    global _media_user_state_collection
+    if _media_user_state_collection is not None:
+        return _media_user_state_collection
+    db = mongo_client()[settings.MEDIA_CONFIG["MEDIA_MONGO_DATABASE"]]
+    collection = db["media_user_states"]
+    collection.create_index([("user_id", ASCENDING), ("webhard_file_id", ASCENDING)], unique=True)
+    collection.create_index([("user_id", ASCENDING), ("favorite", ASCENDING), ("updated_at", DESCENDING)])
+    collection.create_index([("webhard_file_id", ASCENDING), ("liked", ASCENDING)])
+    _media_user_state_collection = collection
+    return _media_user_state_collection

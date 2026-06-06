@@ -7,7 +7,7 @@ from pymongo import UpdateOne
 from django.conf import settings
 
 from .auth import CurrentUser
-from .mongo import media_collection
+from .mongo import media_collection, media_user_state_collection
 
 _SESSION_STATE = local()
 
@@ -51,6 +51,14 @@ def sync_one_from_webhard(current_user: CurrentUser, file_id: int) -> dict[str, 
     rows = fetch_webhard_media_by_file_id(current_user, file_id)
     collection = media_collection()
     now = datetime.now(timezone.utc)
+    if not rows:
+        query = {"webhard_file_id": file_id}
+        if not current_user.is_admin:
+            query["owner_user_id"] = current_user.user_id
+        deleted_count = collection.delete_many(query).deleted_count
+        if deleted_count:
+            media_user_state_collection().delete_many({"webhard_file_id": file_id})
+        return {"item": None, "deleted_count": deleted_count}
     for row in rows:
         should_publish = current_user.is_admin and str(row.get("owner_user_id") or "") == current_user.user_id
         if should_publish and str(row.get("media_public_yn") or "") != "Y":
@@ -135,7 +143,10 @@ def purge_deleted_webhard_media(current_user: CurrentUser) -> int:
     stale_ids = [file_id for file_id in existing_ids if file_id not in active_ids]
     if not stale_ids:
         return 0
-    return collection.delete_many({"webhard_file_id": {"$in": stale_ids}, **query}).deleted_count
+    deleted_count = collection.delete_many({"webhard_file_id": {"$in": stale_ids}, **query}).deleted_count
+    if deleted_count:
+        media_user_state_collection().delete_many({"webhard_file_id": {"$in": stale_ids}})
+    return deleted_count
 
 
 def fetch_active_webhard_file_ids(current_user: CurrentUser, file_ids: list[int]) -> set[int]:

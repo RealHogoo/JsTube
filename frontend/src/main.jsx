@@ -447,6 +447,20 @@ function KaraokePage({ currentUser, request }) {
   }, [remoteSession?.session_id, remoteSequence, queue, currentItem, currentVideoTime]);
 
   useEffect(() => {
+    if (!remoteSession?.session_id) return undefined;
+    const heartbeat = async () => {
+      try {
+        await request(`/api/karaoke/remote/${remoteSession.session_id}/heartbeat/`, { method: "POST", body: "{}" });
+      } catch {
+        // Polling will surface session errors; heartbeat is best-effort.
+      }
+    };
+    const timer = window.setInterval(heartbeat, 60000);
+    heartbeat();
+    return () => window.clearInterval(timer);
+  }, [remoteSession?.session_id]);
+
+  useEffect(() => {
     const handler = (event) => {
       const target = event.target;
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
@@ -1061,6 +1075,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
   const [importing, setImporting] = useState(false);
   const [queueItems, setQueueItems] = useState([]);
   const [jobId, setJobId] = useState("");
+  const [jobSummary, setJobSummary] = useState(null);
 
   useEffect(() => {
     if (currentUser?.is_admin) {
@@ -1086,7 +1101,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
             markSavedQueueItems(data.items || []);
           }
           if (isYoutubeJobIdle(data.job)) {
-            finishImportJob(data.job.result || {});
+            finishImportJob(data.job);
           }
         }
       } catch {
@@ -1125,6 +1140,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
     setPreview(null);
     setQueueItems([]);
     setJobId("");
+    setJobSummary(null);
     try {
       const data = await request("/api/youtube/preview/", {
         method: "POST",
@@ -1159,6 +1175,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
         return "";
       }
       setJobId(nextJobId);
+      setJobSummary(data);
       setQueueItems(data.items?.length ? data.items.map(normalizeQueueItem) : initialQueue);
       setMessage(`${data.item_count || initialQueue.length}개 다운로드 작업이 준비되었습니다.`);
       return nextJobId;
@@ -1218,10 +1235,12 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
     }
   }
 
-  function finishImportJob(result) {
+  function finishImportJob(job) {
+    const result = job?.result || job || {};
     const savedCount = result.downloaded_count || result.upserted_count || 0;
     const failedCount = result.failed_count || 0;
     const firstFailure = (result.results || []).find((item) => item.status === "FAILED");
+    setJobSummary(job || null);
     applyFinalImportResults(result.results || []);
     setMessage(`웹하드 저장 완료: ${result.scanned_count || 0}개 확인, ${savedCount}개 저장, ${failedCount}개 실패${firstFailure?.message ? ` - ${firstFailure.message}` : ""}`);
     setImporting(false);
@@ -1234,11 +1253,13 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
   function updateQueueFromJob(job) {
     const items = (job.items || []).map(normalizeQueueItem);
     setQueueItems(items);
-    const savedCount = items.filter((item) => item.status === "saved").length;
-    const failedCount = items.filter((item) => item.status === "failed").length;
-    const runningCount = items.filter((item) => item.status === "downloading").length;
-    const queuedCount = items.filter((item) => item.status === "queued").length;
-    setMessage(`유튜브 저장 진행 중입니다. 저장 ${savedCount}/${items.length}${runningCount ? `, 진행 ${runningCount}` : ""}${queuedCount ? `, 대기 ${queuedCount}` : ""}${failedCount ? `, 실패 ${failedCount}` : ""}`);
+    setJobSummary(job);
+    const savedCount = Number(job.downloaded_count ?? items.filter((item) => item.status === "saved").length);
+    const failedCount = Number(job.failed_count ?? items.filter((item) => item.status === "failed").length);
+    const runningCount = Number(job.running_count ?? items.filter((item) => item.status === "downloading").length);
+    const queuedCount = Number(job.queued_count ?? items.filter((item) => item.status === "queued").length);
+    const activeTitle = job.active_item?.title ? `, 현재: ${job.active_item.title}` : "";
+    setMessage(`유튜브 저장 진행 중입니다. 저장 ${savedCount}/${items.length}${runningCount ? `, 진행 ${runningCount}` : ""}${queuedCount ? `, 대기 ${queuedCount}` : ""}${failedCount ? `, 실패 ${failedCount}` : ""}${activeTitle}`);
   }
 
   function markSavedQueueItems(savedItems) {
@@ -1338,7 +1359,7 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
               </div>
               <button className="btn primary" type="button" onClick={save} disabled={loading}>전체 시작</button>
             </div>
-            <QueueSummary items={queueItems} importing={importing} />
+            <QueueSummary items={queueItems} importing={importing} jobSummary={jobSummary} />
             <div className="youtube-list">
               {(queueItems.length ? queueItems : buildImportQueue(preview.items || [])).map((item) => (
                 <article className={`youtube-item ${item.status || "queued"}`} key={item.youtube_video_id}>
@@ -1370,16 +1391,22 @@ function YoutubeImportPage({ currentUser, request, onImported }) {
   );
 }
 
-function QueueSummary({ items, importing }) {
+function QueueSummary({ items, importing, jobSummary }) {
   if (!items.length) return null;
-  const saved = items.filter((item) => item.status === "saved").length;
-  const failed = items.filter((item) => item.status === "failed").length;
-  const active = items.some((item) => item.status === "downloading");
+  const saved = Number(jobSummary?.downloaded_count ?? items.filter((item) => item.status === "saved").length);
+  const failed = Number(jobSummary?.failed_count ?? items.filter((item) => item.status === "failed").length);
+  const running = Number(jobSummary?.running_count ?? items.filter((item) => item.status === "downloading").length);
+  const queued = Number(jobSummary?.queued_count ?? items.filter((item) => item.status === "queued").length);
+  const active = running > 0;
+  const finished = Number(jobSummary?.finished_count ?? saved + failed);
+  const progress = Number(jobSummary?.progress_percent ?? ((finished / items.length) * 100));
+  const activeTitle = jobSummary?.active_item?.title || items.find((item) => item.status === "downloading")?.title || "";
   return (
     <div className="queue-summary" aria-live="polite">
       <strong>{saved}/{items.length}</strong>
       <span>{failed ? `${failed}개 실패` : importing || active ? "저장 진행 중" : "저장 대기"}</span>
-      <progress max={items.length} value={saved + failed} />
+      <progress max={100} value={Number.isFinite(progress) ? progress : 0} />
+      <small>완료 {finished}개 · 진행 {running}개 · 대기 {queued}개{activeTitle ? ` · 현재: ${activeTitle}` : ""}</small>
     </div>
   );
 }
@@ -1623,13 +1650,16 @@ function normalizeQueueItem(item) {
   if (status === "SAVED" || status === "DOWNLOADED") mappedStatus = "saved";
   if (status === "FAILED") mappedStatus = "failed";
   return {
+    order_no: Number(item.order_no || 0),
     youtube_video_id: String(item.youtube_video_id || item.id || ""),
     title: item.title || item.youtube_video_id || "영상",
     channel_name: item.channel_name || "",
     thumbnail_url: item.thumbnail_url || "",
     status: mappedStatus,
     webhard_file_id: item.webhard_file_id || item.file_id || "",
-    message: item.message || ""
+    message: item.message || "",
+    started_at: item.started_at || "",
+    finished_at: item.finished_at || ""
   };
 }
 

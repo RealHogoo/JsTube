@@ -1280,6 +1280,12 @@ label {
   font-weight: 700;
 }
 
+.queue-summary small {
+  grid-column: 1 / -1;
+  color: #64748b;
+  overflow-wrap: anywhere;
+}
+
 .queue-summary progress {
   grid-column: 1 / -1;
   width: 100%;

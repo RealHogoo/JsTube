@@ -21,6 +21,7 @@ urlpatterns = [
     path("karaoke/remote/session/", views.karaoke_remote_session),
     path("karaoke/remote/<str:session_id>/command/", views.karaoke_remote_command),
     path("karaoke/remote/<str:session_id>/commands/", views.karaoke_remote_commands),
+    path("karaoke/remote/<str:session_id>/heartbeat/", views.karaoke_remote_heartbeat),
     path("media/<int:webhard_file_id>/content-file/", lambda request, webhard_file_id: views.media_file_proxy(request, webhard_file_id, "content")),
     path("media/<int:webhard_file_id>/thumbnail-file/", lambda request, webhard_file_id: views.media_file_proxy(request, webhard_file_id, "thumbnail")),
     path("media/<int:webhard_file_id>/download-file/", lambda request, webhard_file_id: views.media_file_proxy(request, webhard_file_id, "download")),
