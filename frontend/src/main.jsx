@@ -1462,6 +1462,7 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
   const [infoOpen, setInfoOpen] = useState(false);
   const [form, setForm] = useState({ title: item.title || "", album: item.album || "", tags: (item.tags || []).join(", "), description: item.description || "" });
   const [thumbnailTime, setThumbnailTime] = useState("00:00:01");
+  const [timeTagDraft, setTimeTagDraft] = useState(formatTimeTagDraft(item.tags || []));
   const [currentVideoTime, setCurrentVideoTime] = useState(0);
   const canManage = canManageMedia(currentUser, item);
   const canDelete = canDeleteMedia(currentUser, item);
@@ -1473,6 +1474,7 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
   useEffect(() => {
     setForm({ title: item.title || "", album: item.album || "", tags: (item.tags || []).join(", "), description: item.description || "" });
     setThumbnailTime("00:00:01");
+    setTimeTagDraft(formatTimeTagDraft(item.tags || []));
     setCurrentVideoTime(0);
   }, [item]);
 
@@ -1512,6 +1514,26 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
     const currentTime = videoRef.current?.currentTime || 0;
     const next = timeTags.find((entry) => entry.seconds > currentTime + 0.35) || timeTags[0];
     seekToTimeTag(next.seconds);
+  }
+
+  function seekPreviousTimeTag() {
+    if (!timeTags.length) return;
+    const currentTime = videoRef.current?.currentTime || 0;
+    const previous = [...timeTags].reverse().find((entry) => entry.seconds < currentTime - 0.35) || timeTags[timeTags.length - 1];
+    seekToTimeTag(previous.seconds);
+  }
+
+  async function saveTimeTags() {
+    const preservedTags = splitTags(form.tags).filter((tag) => !isTimeTag(tag));
+    const nextTimeTags = timeTagDraft
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map(normalizeTimeTagLine)
+      .filter(Boolean);
+    const nextTags = uniqueTags(preservedTags.concat(nextTimeTags));
+    setForm((current) => ({ ...current, tags: nextTags.join(", ") }));
+    await onPatch(item, { tags: nextTags });
   }
 
   return (
@@ -1576,25 +1598,41 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
               </div>
             )}
 
-            {isLocalVideo && timeTags.length > 0 && (
+            {isLocalVideo && (
               <div className="time-tags-panel">
                 <div className="time-tags-head">
                   <strong>타임태그</strong>
-                  <button className="btn" type="button" onClick={seekNextTimeTag}><SkipForward size={16} /> 다음</button>
+                  <div className="actions">
+                    <button className="btn" type="button" onClick={seekPreviousTimeTag} disabled={!timeTags.length}><SkipBack size={16} /> 이전</button>
+                    <button className="btn" type="button" onClick={seekNextTimeTag} disabled={!timeTags.length}><SkipForward size={16} /> 다음</button>
+                  </div>
                 </div>
-                <div className="time-tag-list">
-                  {timeTags.map((entry, index) => (
-                    <button
-                      className={index === activeTimeIndex ? "time-tag-button active" : "time-tag-button"}
-                      key={`${entry.seconds}-${entry.raw}`}
-                      type="button"
-                      onClick={() => seekToTimeTag(entry.seconds)}
-                    >
-                      <strong>{formatMediaTime(entry.seconds)}</strong>
-                      <span>{entry.label}</span>
-                    </button>
-                  ))}
-                </div>
+                {timeTags.length > 0 ? (
+                  <div className="time-tag-list">
+                    {timeTags.map((entry, index) => (
+                      <button
+                        className={index === activeTimeIndex ? "time-tag-button active" : "time-tag-button"}
+                        key={`${entry.seconds}-${entry.raw}`}
+                        type="button"
+                        onClick={() => seekToTimeTag(entry.seconds)}
+                      >
+                        <strong>{formatMediaTime(entry.seconds)}</strong>
+                        <span>{entry.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="time-tag-empty">등록된 타임태그가 없습니다.</p>
+                )}
+                {canManage && (
+                  <div className="time-tag-editor compact">
+                    <label>
+                      타임태그 편집
+                      <textarea className="input textarea" value={timeTagDraft} onChange={(event) => setTimeTagDraft(event.target.value)} placeholder="00:35 전주끝&#10;01:12 1절&#10;02:28 간주" />
+                    </label>
+                    <button className="btn primary" type="button" onClick={saveTimeTags}>저장</button>
+                  </div>
+                )}
               </div>
             )}
 

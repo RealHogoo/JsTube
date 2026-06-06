@@ -1175,6 +1175,10 @@ label {
   gap: 10px;
 }
 
+.time-tags-head .actions {
+  gap: 6px;
+}
+
 .time-tag-list {
   display: grid;
   gap: 8px;
@@ -1210,6 +1214,24 @@ label {
 
 .time-tag-button span {
   overflow-wrap: anywhere;
+}
+
+.time-tag-empty {
+  margin: 0;
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #64748b;
+  background: #fff;
+}
+
+.time-tag-editor.compact {
+  grid-template-columns: 1fr;
+  padding-top: 0;
+}
+
+.time-tag-editor.compact textarea {
+  min-height: 92px;
 }
 
 .info-dialog-backdrop {
