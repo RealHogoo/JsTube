@@ -794,6 +794,26 @@ function KaraokePage({ currentUser, request }) {
           <h1>리모컨으로 고르고 예약하기</h1>
           <p>방향키 좌우로 영역 이동, 상하로 선택 이동, Enter로 실행합니다. 숫자키는 KY번호 검색입니다.</p>
         </div>
+        <div className={focusArea === "queue" ? "reservation-panel header-reservation-panel focus-area" : "reservation-panel header-reservation-panel"}>
+          <div className="karaoke-list-head">
+            <strong>예약 목록</strong>
+            <span>{reservationSummary(queue)}</span>
+          </div>
+          <div className="reservation-list">
+            {queue.map((item, index) => (
+              <article className={reservationItemClass(index, selectedQueueIndex)} key={item.webhard_file_id}>
+                <span>{reservationOrderLabel(index)}</span>
+                <div>
+                  <strong>{item.title || item.display_name || item.file_name}</strong>
+                  <small>{karaokeArtist(item)}</small>
+                </div>
+                <button className="btn icon-only" type="button" onClick={() => playReserved(index)} aria-label="예약 재생"><Play size={16} /></button>
+                <button className="btn icon-only" type="button" onClick={() => removeReserved(item)} aria-label="예약 삭제"><Trash2 size={16} /></button>
+              </article>
+            ))}
+            {!queue.length && <p>예약된 곡이 없습니다.</p>}
+          </div>
+        </div>
         <form className="karaoke-search" onSubmit={submitSearch}>
           <label>
             노래 검색
@@ -821,121 +841,97 @@ function KaraokePage({ currentUser, request }) {
         </div>
       </section>
 
-      <section className={focusArea === "queue" ? "reservation-panel top-reservation-panel focus-area" : "reservation-panel top-reservation-panel"}>
-        <div className="karaoke-list-head">
-          <strong>예약 목록</strong>
-          <span>{reservationSummary(queue)}</span>
-        </div>
-        <div className="reservation-list">
-          {queue.map((item, index) => (
-            <article className={reservationItemClass(index, selectedQueueIndex)} key={item.webhard_file_id}>
-              <span>{reservationOrderLabel(index)}</span>
-              <div>
-                <strong>{item.title || item.display_name || item.file_name}</strong>
-                <small>{karaokeArtist(item)}</small>
-              </div>
-              <button className="btn icon-only" type="button" onClick={() => playReserved(index)} aria-label="예약 재생"><Play size={16} /></button>
-              <button className="btn icon-only" type="button" onClick={() => removeReserved(item)} aria-label="예약 삭제"><Trash2 size={16} /></button>
-            </article>
-          ))}
-          {!queue.length && <p>예약된 곡이 없습니다.</p>}
-        </div>
-      </section>
-
       <section className="karaoke-grid">
-        <div className={focusArea === "list" ? "karaoke-list-panel focus-area" : "karaoke-list-panel"}>
-          <div className="karaoke-list-head">
-            <strong>곡 목록</strong>
-            <span>{items.length}곡 · {focusArea === "list" ? "선택 중" : "좌우키로 이동"}</span>
-          </div>
-          <div className="karaoke-list" ref={listRef}>
-            {items.map((item, index) => (
-              <article className={index === selectedIndex ? "karaoke-card active" : "karaoke-card"} data-karaoke-index={index} key={item.webhard_file_id}>
-                <button className="karaoke-card-main" type="button" onClick={() => setSelectedIndex(index)} onDoubleClick={() => playNow(item)}>
-                  <span className="karaoke-number">{karaokeNumber(item) || String(index + 1).padStart(2, "0")}</span>
-                  <span>
-                    <strong>{item.title || item.display_name || item.file_name}</strong>
-                    <small>{karaokeArtist(item)}</small>
-                  </span>
-                </button>
-                <div className="karaoke-card-actions">
-                  <button className="btn primary" type="button" onClick={() => playNow(item)}><Play size={16} /> 재생</button>
-                  <button className="btn" type="button" onClick={() => reserve(item)}><Plus size={16} /> 예약</button>
-                </div>
-              </article>
-            ))}
-            {!items.length && !loading && <div className="karaoke-empty">검색 결과가 없습니다.</div>}
-          </div>
-        </div>
-
-        <div className="karaoke-stage">
-          <section className={focusArea === "player" ? "karaoke-player-panel focus-area" : "karaoke-player-panel"}>
-            <div className="karaoke-player">
-              {currentItem?.content_url ? (
-                <video
-                  ref={videoRef}
-                  src={currentItem.content_url}
-                  poster={hasVideoThumbnail(currentItem) ? currentItem.thumbnail_url : undefined}
-                  controls
-                  preload="metadata"
-                  onPlay={() => setPlaying(true)}
-                  onPause={() => setPlaying(false)}
-                  onEnded={playNextSong}
-                  onTimeUpdate={(event) => setCurrentVideoTime(event.currentTarget.currentTime)}
-                />
-              ) : (
-                <div className="karaoke-standby">
-                  <Music size={54} />
-                  <strong>곡을 선택하세요</strong>
-                  <span>리모컨 방향키로 곡을 고르고 Enter를 누르면 재생됩니다.</span>
-                </div>
-              )}
+        <div className="karaoke-left-rail">
+          <div className={focusArea === "list" ? "karaoke-list-panel focus-area" : "karaoke-list-panel"}>
+            <div className="karaoke-list-head">
+              <strong>곡 목록</strong>
+              <span>{items.length}곡 · {focusArea === "list" ? "선택 중" : "좌우키로 이동"}</span>
             </div>
-            <div className="karaoke-now">
-              <strong>{currentItem ? (currentItem.title || currentItem.display_name || currentItem.file_name) : "재생 대기"}</strong>
-              <span>{currentItem ? karaokeArtist(currentItem) : "예약 목록에서 다음 곡을 이어서 재생합니다."}</span>
-            </div>
-            <div className="karaoke-controls">
-              <button className="karaoke-control" type="button" onClick={seekPreviousTimeTag} disabled={!timeTags.length}><SkipBack size={20} /> 이전태그</button>
-              <button className="karaoke-control primary" type="button" onClick={togglePlay} disabled={!currentItem}>{playing ? <Pause size={20} /> : <Play size={20} />} {playing ? "일시정지" : "재생"}</button>
-              <button className="karaoke-control" type="button" onClick={seekNextTimeTag} disabled={!timeTags.length}><SkipForward size={20} /> 간주점프</button>
-              <button className="karaoke-control" type="button" onClick={playNextSong} disabled={!queue.length}><ListMusic size={20} /> 다음곡</button>
-            </div>
-            {timeTags.length > 0 && (
-              <div className="karaoke-time-tags">
-                {timeTags.map((entry, index) => (
-                  <button className={index === activeTimeIndex ? "active" : ""} type="button" key={`${entry.seconds}-${entry.raw}`} onClick={() => seekToTimeTag(entry.seconds)}>
-                    <strong>{formatMediaTime(entry.seconds)}</strong>
-                    <span>{entry.label}</span>
+            <div className="karaoke-list" ref={listRef}>
+              {items.map((item, index) => (
+                <article className={index === selectedIndex ? "karaoke-card active" : "karaoke-card"} data-karaoke-index={index} key={item.webhard_file_id}>
+                  <button className="karaoke-card-main" type="button" onClick={() => setSelectedIndex(index)} onDoubleClick={() => playNow(item)}>
+                    <span className="karaoke-number">{karaokeNumber(item) || String(index + 1).padStart(2, "0")}</span>
+                    <span>
+                      <strong>{item.title || item.display_name || item.file_name}</strong>
+                      <small>{karaokeArtist(item)}</small>
+                    </span>
                   </button>
-                ))}
-              </div>
-            )}
-            {currentItem && canEditCurrentItem && (
-              <div className="time-tag-editor">
-                <label>
-                  타임태그 편집
-                  <textarea className="input textarea" value={timeTagDraft} onChange={(event) => setTimeTagDraft(event.target.value)} placeholder="00:35 전주끝&#10;01:12 1절&#10;02:28 간주" />
-                </label>
-                <button className="btn primary" type="button" onClick={saveTimeTags} disabled={loading}>타임태그 저장</button>
-              </div>
-            )}
-          </section>
-
-          <section className="karaoke-side-panel">
-            <div className={focusArea === "keypad" ? "quick-number focus-area" : "quick-number"}>
-              <strong>KY번호 빠른 입력</strong>
-              <div className="quick-number-display">{quickNumber || "숫자키 입력"}</div>
-              <div className="quick-keypad">
-                {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((value) => <button type="button" key={value} onClick={() => pressKeypad(value)}>{value}</button>)}
-                <button type="button" onClick={() => pressKeypad("back")}>←</button>
-                <button type="button" onClick={() => pressKeypad("0")}>0</button>
-                <button type="button" onClick={() => pressKeypad("clear")}>C</button>
-              </div>
-              <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
+                  <div className="karaoke-card-actions">
+                    <button className="btn primary" type="button" onClick={() => playNow(item)}><Play size={16} /> 재생</button>
+                    <button className="btn" type="button" onClick={() => reserve(item)}><Plus size={16} /> 예약</button>
+                  </div>
+                </article>
+              ))}
+              {!items.length && !loading && <div className="karaoke-empty">검색 결과가 없습니다.</div>}
             </div>
-          </section>
+          </div>
+          <div className={focusArea === "keypad" ? "quick-number focus-area" : "quick-number"}>
+            <strong>KY번호 빠른 입력</strong>
+            <div className="quick-number-display">{quickNumber || "숫자키 입력"}</div>
+            <div className="quick-keypad">
+              {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((value) => <button type="button" key={value} onClick={() => pressKeypad(value)}>{value}</button>)}
+              <button type="button" onClick={() => pressKeypad("back")}>←</button>
+              <button type="button" onClick={() => pressKeypad("0")}>0</button>
+              <button type="button" onClick={() => pressKeypad("clear")}>C</button>
+            </div>
+            <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
+          </div>
         </div>
+
+        <section className={focusArea === "player" ? "karaoke-player-panel focus-area" : "karaoke-player-panel"}>
+          <div className="karaoke-player">
+            {currentItem?.content_url ? (
+              <video
+                ref={videoRef}
+                src={currentItem.content_url}
+                poster={hasVideoThumbnail(currentItem) ? currentItem.thumbnail_url : undefined}
+                controls
+                preload="metadata"
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onEnded={playNextSong}
+                onTimeUpdate={(event) => setCurrentVideoTime(event.currentTarget.currentTime)}
+              />
+            ) : (
+              <div className="karaoke-standby">
+                <Music size={54} />
+                <strong>곡을 선택하세요</strong>
+                <span>리모컨 방향키로 곡을 고르고 Enter를 누르면 재생됩니다.</span>
+              </div>
+            )}
+          </div>
+          <div className="karaoke-now">
+            <strong>{currentItem ? (currentItem.title || currentItem.display_name || currentItem.file_name) : "재생 대기"}</strong>
+            <span>{currentItem ? karaokeArtist(currentItem) : "예약 목록에서 다음 곡을 이어서 재생합니다."}</span>
+          </div>
+          <div className="karaoke-controls">
+            <button className="karaoke-control" type="button" onClick={seekPreviousTimeTag} disabled={!timeTags.length}><SkipBack size={20} /> 이전태그</button>
+            <button className="karaoke-control primary" type="button" onClick={togglePlay} disabled={!currentItem}>{playing ? <Pause size={20} /> : <Play size={20} />} {playing ? "일시정지" : "재생"}</button>
+            <button className="karaoke-control" type="button" onClick={seekNextTimeTag} disabled={!timeTags.length}><SkipForward size={20} /> 간주점프</button>
+            <button className="karaoke-control" type="button" onClick={playNextSong} disabled={!queue.length}><ListMusic size={20} /> 다음곡</button>
+          </div>
+          {timeTags.length > 0 && (
+            <div className="karaoke-time-tags">
+              {timeTags.map((entry, index) => (
+                <button className={index === activeTimeIndex ? "active" : ""} type="button" key={`${entry.seconds}-${entry.raw}`} onClick={() => seekToTimeTag(entry.seconds)}>
+                  <strong>{formatMediaTime(entry.seconds)}</strong>
+                  <span>{entry.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {currentItem && canEditCurrentItem && (
+            <div className="time-tag-editor">
+              <label>
+                타임태그 편집
+                <textarea className="input textarea" value={timeTagDraft} onChange={(event) => setTimeTagDraft(event.target.value)} placeholder="00:35 전주끝&#10;01:12 1절&#10;02:28 간주" />
+              </label>
+              <button className="btn primary" type="button" onClick={saveTimeTags} disabled={loading}>타임태그 저장</button>
+            </div>
+          )}
+        </section>
       </section>
 
       {message && <p className="message karaoke-message">{message}</p>}
