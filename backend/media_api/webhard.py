@@ -3,6 +3,7 @@ from threading import local
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
 from pymongo import UpdateOne
 from django.conf import settings
 
@@ -234,12 +235,15 @@ def media_document(row: dict[str, Any], synced_at: datetime, owner_is_admin: boo
 
 def internal_post(current_user: CurrentUser | None, path: str, payload: dict[str, Any], timeout: int = 15) -> dict[str, Any]:
     base_url, headers = internal_request_config(current_user)
-    response = internal_session().post(
-        f"{base_url}{path}",
-        headers=headers,
-        json=payload,
-        timeout=timeout,
-    )
+    try:
+        response = internal_session().post(
+            f"{base_url}{path}",
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("webhard internal request failed") from exc
     try:
         body = response.json()
     except ValueError as exc:
@@ -254,13 +258,16 @@ def internal_post(current_user: CurrentUser | None, path: str, payload: dict[str
 
 def internal_stream_post(current_user: CurrentUser, path: str, payload: dict[str, Any], timeout: int = 30) -> requests.Response:
     base_url, headers = internal_request_config(current_user)
-    response = internal_session().post(
-        f"{base_url}{path}",
-        headers=headers,
-        json=payload,
-        timeout=timeout,
-        stream=True,
-    )
+    try:
+        response = internal_session().post(
+            f"{base_url}{path}",
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+            stream=True,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("webhard internal stream request failed") from exc
     if not response.ok:
         response.close()
         raise RuntimeError(f"webhard internal stream failed: HTTP {response.status_code}")
@@ -286,6 +293,9 @@ def internal_session() -> requests.Session:
     session = getattr(_SESSION_STATE, "session", None)
     if session is None:
         session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=8, pool_maxsize=24, max_retries=0)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
         _SESSION_STATE.session = session
     return session
 

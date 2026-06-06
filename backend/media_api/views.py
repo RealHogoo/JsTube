@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import subprocess
@@ -25,6 +26,7 @@ try:
 except ValueError:
     YOUTUBE_IMPORT_CONCURRENCY = 1
 YOUTUBE_IMPORT_SEMAPHORE = threading.Semaphore(YOUTUBE_IMPORT_CONCURRENCY)
+LOGGER = logging.getLogger(__name__)
 
 
 def ok(data: dict[str, Any] | list[Any]) -> JsonResponse:
@@ -592,16 +594,22 @@ def media_file_proxy(request: HttpRequest, webhard_file_id: int, file_kind: str)
 
     if file_kind not in {"thumbnail", "content", "download"}:
         return bad_request("invalid file kind")
+    range_header = ""
+    if file_kind == "content":
+        range_header = normalized_range_header(request.headers.get("Range", ""))
+        if range_header is None:
+            return JsonResponse({"ok": False, "code": "INVALID_RANGE", "message": "range header is invalid"}, status=416)
     try:
         upstream = stream_webhard_file(
             user,
             webhard_file_id,
             file_kind,
             allow_public=is_public_media(item),
-            range_header=request.headers.get("Range", "") if file_kind == "content" else "",
+            range_header=range_header,
         )
     except RuntimeError as exc:
-        return JsonResponse({"ok": False, "code": "WEBHARD_STREAM_FAILED", "message": str(exc)}, status=502)
+        LOGGER.warning("webhard stream failed for file_id=%s kind=%s: %s", webhard_file_id, file_kind, exc)
+        return JsonResponse({"ok": False, "code": "WEBHARD_STREAM_FAILED", "message": "media stream failed"}, status=502)
 
     response = StreamingHttpResponse(
         stream_response_chunks(upstream),
@@ -758,10 +766,20 @@ def stream_response_chunks(upstream: requests.Response):
         upstream.close()
 
 
+def normalized_range_header(value: str) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.fullmatch(r"bytes=(\d{0,16})-(\d{0,16})", text)
+    if not match or (not match.group(1) and not match.group(2)):
+        return None
+    return text
+
+
 def media_counts(collection, query: dict[str, Any]) -> dict[str, int]:
     tags_array = {"$cond": [{"$isArray": "$tags"}, "$tags", []]}
     karaoke_tag = {"$in": ["노래방", tags_array]}
-    rows = list(collection.aggregate([
+    row = next(collection.aggregate([
         {"$match": query},
         {
             "$group": {
@@ -787,8 +805,7 @@ def media_counts(collection, query: dict[str, Any]) -> dict[str, int]:
                 },
             }
         },
-    ]))
-    row = rows[0] if rows else {}
+    ]), None) or {}
     return {
         "image": int(row.get("image") or 0),
         "video": int(row.get("video") or 0),

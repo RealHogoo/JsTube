@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Clock, Download, Heart, Image as ImageIcon, Info, ListMusic, Music, Pause, Play, Plus, RefreshCw, Search, SkipBack, SkipForward, Star, Tags, Trash2, Video, X } from "lucide-react";
 import "./styles.css";
@@ -398,7 +398,7 @@ function KaraokePage({ currentUser, request }) {
   const shellRef = useRef(null);
   const videoRef = useRef(null);
   const listRef = useRef(null);
-  const timeTags = parseTimeTags(currentItem?.tags || []);
+  const timeTags = useMemo(() => parseTimeTags(currentItem?.tags || []), [currentItem?.tags]);
   const activeTimeIndex = activeTimeTagIndex(timeTags, currentVideoTime);
   const canEditCurrentItem = canManageMedia(currentUser, currentItem);
 
@@ -1467,7 +1467,7 @@ function ViewerModal({ item, currentUser, onClose, onPatch, onCreateThumbnail, o
   const canDelete = canDeleteMedia(currentUser, item);
   const isYoutubeEmbed = item.source_type === "YOUTUBE" && item.youtube_embed_url;
   const isLocalVideo = !isYoutubeEmbed && item.content_kind === "VIDEO" && item.content_url;
-  const timeTags = parseTimeTags(item.tags || []);
+  const timeTags = useMemo(() => parseTimeTags(item.tags || []), [item.tags]);
   const activeTimeIndex = activeTimeTagIndex(timeTags, currentVideoTime);
 
   useEffect(() => {
