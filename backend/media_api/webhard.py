@@ -116,17 +116,20 @@ def fetch_webhard_file(current_user: CurrentUser, file_id: int, allow_public: bo
     return item if isinstance(item, dict) else None
 
 
-def stream_webhard_file(current_user: CurrentUser, file_id: int, file_kind: str, allow_public: bool = False) -> requests.Response:
+def stream_webhard_file(current_user: CurrentUser, file_id: int, file_kind: str, allow_public: bool = False, range_header: str = "") -> requests.Response:
+    payload: dict[str, Any] = {
+        "file_id": file_id,
+        "file_kind": file_kind,
+        "viewer_user_id": current_user.user_id,
+        "viewer_is_admin": current_user.is_admin,
+        "allow_public": allow_public,
+    }
+    if range_header:
+        payload["range"] = range_header
     return internal_stream_post(
         current_user,
         "/internal/media/file-stream.json",
-        {
-            "file_id": file_id,
-            "file_kind": file_kind,
-            "viewer_user_id": current_user.user_id,
-            "viewer_is_admin": current_user.is_admin,
-            "allow_public": allow_public,
-        },
+        payload,
         timeout=30,
     )
 

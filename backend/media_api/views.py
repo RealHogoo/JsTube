@@ -593,15 +593,29 @@ def media_file_proxy(request: HttpRequest, webhard_file_id: int, file_kind: str)
     if file_kind not in {"thumbnail", "content", "download"}:
         return bad_request("invalid file kind")
     try:
-        upstream = stream_webhard_file(user, webhard_file_id, file_kind, allow_public=is_public_media(item))
+        upstream = stream_webhard_file(
+            user,
+            webhard_file_id,
+            file_kind,
+            allow_public=is_public_media(item),
+            range_header=request.headers.get("Range", "") if file_kind == "content" else "",
+        )
     except RuntimeError as exc:
         return JsonResponse({"ok": False, "code": "WEBHARD_STREAM_FAILED", "message": str(exc)}, status=502)
 
     response = StreamingHttpResponse(
         stream_response_chunks(upstream),
+        status=upstream.status_code,
         content_type=upstream.headers.get("Content-Type") or "application/octet-stream",
     )
-    for header in ["Content-Disposition", "X-Content-Type-Options", "Content-Security-Policy"]:
+    for header in [
+        "Content-Disposition",
+        "X-Content-Type-Options",
+        "Content-Security-Policy",
+        "Content-Length",
+        "Content-Range",
+        "Accept-Ranges",
+    ]:
         value = upstream.headers.get(header)
         if value:
             response[header] = value

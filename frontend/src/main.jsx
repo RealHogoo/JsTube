@@ -855,6 +855,7 @@ function KaraokePage({ currentUser, request }) {
                   ref={videoRef}
                   src={currentItem.content_url}
                   poster={hasVideoThumbnail(currentItem) ? currentItem.thumbnail_url : undefined}
+                  controls
                   preload="metadata"
                   onPlay={() => setPlaying(true)}
                   onPause={() => setPlaying(false)}

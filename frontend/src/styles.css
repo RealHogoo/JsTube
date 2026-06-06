@@ -480,11 +480,11 @@ label {
 
 .karaoke-shell {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   width: 100%;
-  max-width: 1540px;
+  max-width: none;
   margin: 0 auto;
-  padding: 20px;
+  padding: 12px;
 }
 
 .karaoke-remote-shell {
@@ -560,7 +560,7 @@ label {
 }
 
 .mobile-remote-panel {
-  display: grid;
+  display: none;
   gap: 10px;
   padding: 14px;
 }
@@ -645,8 +645,8 @@ label {
 
 .karaoke-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 0.95fr) minmax(560px, 1.55fr);
-  gap: 16px;
+  grid-template-columns: minmax(320px, 0.62fr) minmax(720px, 1.9fr);
+  gap: 12px;
 }
 
 .karaoke-list-panel,
@@ -680,7 +680,7 @@ label {
 .karaoke-list {
   display: grid;
   gap: 10px;
-  max-height: calc(100vh - 230px);
+  max-height: calc(100vh - 188px);
   overflow: auto;
   padding-right: 4px;
 }
@@ -750,14 +750,15 @@ label {
 
 .karaoke-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 12px;
 }
 
 .karaoke-player {
   display: grid;
   place-items: center;
   aspect-ratio: 16 / 9;
+  min-height: min(70vh, 760px);
   overflow: hidden;
   border-radius: 12px;
   background: #020617;
@@ -1446,6 +1447,10 @@ label {
 
   .karaoke-card-actions {
     justify-content: flex-start;
+  }
+
+  .mobile-remote-panel {
+    display: grid;
   }
 
   .mobile-remote-actions {
