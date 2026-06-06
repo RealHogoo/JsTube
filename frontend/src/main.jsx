@@ -821,6 +821,27 @@ function KaraokePage({ currentUser, request }) {
         </div>
       </section>
 
+      <section className={focusArea === "queue" ? "reservation-panel top-reservation-panel focus-area" : "reservation-panel top-reservation-panel"}>
+        <div className="karaoke-list-head">
+          <strong>예약 목록</strong>
+          <span>{reservationSummary(queue)}</span>
+        </div>
+        <div className="reservation-list">
+          {queue.map((item, index) => (
+            <article className={reservationItemClass(index, selectedQueueIndex)} key={item.webhard_file_id}>
+              <span>{reservationOrderLabel(index)}</span>
+              <div>
+                <strong>{item.title || item.display_name || item.file_name}</strong>
+                <small>{karaokeArtist(item)}</small>
+              </div>
+              <button className="btn icon-only" type="button" onClick={() => playReserved(index)} aria-label="예약 재생"><Play size={16} /></button>
+              <button className="btn icon-only" type="button" onClick={() => removeReserved(item)} aria-label="예약 삭제"><Trash2 size={16} /></button>
+            </article>
+          ))}
+          {!queue.length && <p>예약된 곡이 없습니다.</p>}
+        </div>
+      </section>
+
       <section className="karaoke-grid">
         <div className={focusArea === "list" ? "karaoke-list-panel focus-area" : "karaoke-list-panel"}>
           <div className="karaoke-list-head">
@@ -912,27 +933,6 @@ function KaraokePage({ currentUser, request }) {
                 <button type="button" onClick={() => pressKeypad("clear")}>C</button>
               </div>
               <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
-            </div>
-
-            <div className={focusArea === "queue" ? "reservation-panel focus-area" : "reservation-panel"}>
-              <div className="karaoke-list-head">
-                <strong>예약 목록</strong>
-                <span>{reservationSummary(queue)}</span>
-              </div>
-              <div className="reservation-list">
-                {queue.map((item, index) => (
-                  <article className={reservationItemClass(index, selectedQueueIndex)} key={item.webhard_file_id}>
-                    <span>{reservationOrderLabel(index)}</span>
-                    <div>
-                      <strong>{item.title || item.display_name || item.file_name}</strong>
-                      <small>{karaokeArtist(item)}</small>
-                    </div>
-                    <button className="btn icon-only" type="button" onClick={() => playReserved(index)} aria-label="예약 재생"><Play size={16} /></button>
-                    <button className="btn icon-only" type="button" onClick={() => removeReserved(item)} aria-label="예약 삭제"><Trash2 size={16} /></button>
-                  </article>
-                ))}
-                {!queue.length && <p>예약된 곡이 없습니다.</p>}
-              </div>
             </div>
           </section>
         </div>
