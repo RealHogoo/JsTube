@@ -193,10 +193,15 @@ def youtube_import_item_start(request: HttpRequest) -> JsonResponse | HttpRespon
     video_id = str(body.get("youtube_video_id") or "").strip()
     if not job_id or not video_id:
         return bad_request("job_id and youtube_video_id are required")
+    if not is_safe_youtube_video_id(video_id):
+        return bad_request("youtube_video_id is invalid")
     job = youtube_job_collection().find_one({"job_id": job_id, "owner_user_id": user.user_id})
     if not job:
         return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "youtube import job not found"}, status=404)
-    started = start_youtube_import_item(job, video_id, user)
+    try:
+        started = start_youtube_import_item(job, video_id, user)
+    except RuntimeError as exc:
+        return bad_request(str(exc))
     return ok({"job": serialize_youtube_job(started), "message": "youtube item started"})
 
 
@@ -220,11 +225,7 @@ def youtube_import_start_all(request: HttpRequest) -> JsonResponse | HttpRespons
     job = youtube_job_collection().find_one({"job_id": job_id, "owner_user_id": user.user_id})
     if not job:
         return JsonResponse({"ok": False, "code": "NOT_FOUND", "message": "youtube import job not found"}, status=404)
-    started = 0
-    for item in job.get("items") or []:
-        if item.get("status") in {"QUEUED", "FAILED"}:
-            start_youtube_import_item(job, str(item.get("youtube_video_id") or ""), user)
-            started += 1
+    started = start_youtube_import_job(job, user)
     refreshed = youtube_job_collection().find_one({"job_id": job_id}) or job
     return ok({"job": serialize_youtube_job(refreshed), "started_count": started})
 
@@ -794,9 +795,10 @@ def create_youtube_import_job(url: str, user: CurrentUser, tags: list[str]) -> d
     job_id = uuid.uuid4().hex
     now = datetime.utcnow()
     items = []
-    for index, item in enumerate(preview.get("items") or []):
+    max_items = youtube_import_max_items()
+    for index, item in enumerate((preview.get("items") or [])[:max_items]):
         video_id = str(item.get("youtube_video_id") or "").strip()
-        if not video_id:
+        if not is_safe_youtube_video_id(video_id):
             continue
         items.append({
             **item,
@@ -822,6 +824,8 @@ def create_youtube_import_job(url: str, user: CurrentUser, tags: list[str]) -> d
         "source_type": "YOUTUBE_DOWNLOAD",
         "items": items,
         "item_count": len(items),
+        "source_item_count": int(preview.get("item_count") or len(items)),
+        "truncated": int(preview.get("item_count") or len(items)) > len(items),
         "started_count": 0,
         "downloaded_count": 0,
         "failed_count": 0,
@@ -843,29 +847,62 @@ def youtube_import_job(job_id: str, user: CurrentUser) -> dict[str, Any] | None:
 
 
 def start_youtube_import_item(job: dict[str, Any], video_id: str, user: CurrentUser) -> dict[str, Any]:
+    if not is_safe_youtube_video_id(video_id):
+        raise RuntimeError("youtube video id is invalid")
     target = next((item for item in job.get("items") or [] if str(item.get("youtube_video_id") or "") == video_id), None)
     if not target:
         raise RuntimeError("youtube import item not found")
     if target.get("status") in {"RUNNING", "SAVED"}:
         return job
-    now = datetime.utcnow()
-    youtube_job_collection().update_one(
-        {"job_id": job["job_id"], "items.youtube_video_id": video_id},
-        {
-            "$set": {
-                "status": "RUNNING",
-                "message": "youtube import running",
-                "updated_at": now,
-                "items.$.status": "RUNNING",
-                "items.$.message": "download started",
-                "items.$.started_at": now,
-                "items.$.finished_at": None,
-            }
-        },
-    )
+    if youtube_running_count(job) >= YOUTUBE_IMPORT_CONCURRENCY:
+        raise RuntimeError("youtube import concurrency limit exceeded")
+    mark_youtube_import_item_running(job["job_id"], video_id)
     thread = threading.Thread(target=run_youtube_import_item, args=(job["job_id"], video_id, user), daemon=True)
     thread.start()
     return youtube_job_collection().find_one({"job_id": job["job_id"]}) or job
+
+
+def start_youtube_import_job(job: dict[str, Any], user: CurrentUser) -> int:
+    if job.get("dispatcher_running"):
+        return 0
+    pending = [
+        str(item.get("youtube_video_id") or "")
+        for item in job.get("items") or []
+        if item.get("status") in {"QUEUED", "FAILED"} and is_safe_youtube_video_id(str(item.get("youtube_video_id") or ""))
+    ]
+    if not pending:
+        return 0
+    now = datetime.utcnow()
+    updated = youtube_job_collection().update_one(
+        {"job_id": job["job_id"], "dispatcher_running": {"$ne": True}},
+        {"$set": {"dispatcher_running": True, "status": "RUNNING", "message": "youtube import running", "updated_at": now}},
+    )
+    if updated.modified_count == 0:
+        return 0
+    thread = threading.Thread(target=run_youtube_import_job, args=(job["job_id"], pending, user), daemon=True)
+    thread.start()
+    return len(pending)
+
+
+def run_youtube_import_job(job_id: str, pending_ids: list[str], user: CurrentUser) -> None:
+    try:
+        for video_id in pending_ids:
+            job = youtube_job_collection().find_one({"job_id": job_id})
+            if not job:
+                return
+            item = next((entry for entry in job.get("items") or [] if str(entry.get("youtube_video_id") or "") == video_id), None)
+            if not item:
+                continue
+            if item.get("status") not in {"QUEUED", "FAILED"}:
+                continue
+            mark_youtube_import_item_running(job_id, video_id)
+            run_youtube_import_item(job_id, video_id, user)
+    finally:
+        youtube_job_collection().update_one(
+            {"job_id": job_id},
+            {"$set": {"dispatcher_running": False, "updated_at": datetime.utcnow()}},
+        )
+        refresh_youtube_job_status(job_id)
 
 
 def run_youtube_import_item(job_id: str, video_id: str, user: CurrentUser) -> None:
@@ -887,6 +924,24 @@ def run_youtube_import_item(job_id: str, video_id: str, user: CurrentUser) -> No
             update_youtube_import_item(job_id, video_id, "SAVED", "saved", result.get("file_id"), result)
         except Exception as exc:
             update_youtube_import_item(job_id, video_id, "FAILED", str(exc)[:500], None, None)
+
+
+def mark_youtube_import_item_running(job_id: str, video_id: str) -> None:
+    now = datetime.utcnow()
+    youtube_job_collection().update_one(
+        {"job_id": job_id, "items.youtube_video_id": video_id},
+        {
+            "$set": {
+                "status": "RUNNING",
+                "message": "youtube import running",
+                "updated_at": now,
+                "items.$.status": "RUNNING",
+                "items.$.message": "download started",
+                "items.$.started_at": now,
+                "items.$.finished_at": None,
+            }
+        },
+    )
 
 
 def update_youtube_import_item(
@@ -977,6 +1032,9 @@ def serialize_youtube_job(job: dict[str, Any] | None) -> dict[str, Any]:
         "playlist_id": job.get("playlist_id") or "",
         "playlist_title": job.get("playlist_title") or "",
         "item_count": item_count,
+        "source_item_count": int(job.get("source_item_count") or item_count),
+        "truncated": bool(job.get("truncated")),
+        "dispatcher_running": bool(job.get("dispatcher_running")),
         "downloaded_count": downloaded_count,
         "failed_count": failed_count,
         "running_count": running_count,
@@ -1217,4 +1275,19 @@ def is_youtube_url(value: str) -> bool:
     except ValueError:
         return False
     allowed_hosts = {"www.youtube.com", "youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"}
-    return parsed.scheme == "https" and parsed.hostname in allowed_hosts
+    return parsed.scheme == "https" and (parsed.hostname or "").lower() in allowed_hosts
+
+
+def is_safe_youtube_video_id(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_-]{6,80}", str(value or "").strip()))
+
+
+def youtube_import_max_items() -> int:
+    try:
+        return min(max(int(settings.MEDIA_CONFIG.get("YOUTUBE_IMPORT_MAX_ITEMS") or 100), 1), 500)
+    except (TypeError, ValueError):
+        return 100
+
+
+def youtube_running_count(job: dict[str, Any]) -> int:
+    return sum(1 for item in job.get("items") or [] if item.get("status") == "RUNNING")
