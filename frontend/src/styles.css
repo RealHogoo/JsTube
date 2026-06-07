@@ -2245,3 +2245,70 @@ label {
     display: none;
   }
 }
+
+@media (min-width: 1121px) {
+  .karaoke-tv-shell {
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .karaoke-tv-shell .karaoke-search-panel {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  .karaoke-tv-shell .karaoke-grid {
+    grid-template-columns: minmax(430px, 0.28fr) minmax(0, 1fr) minmax(360px, 0.24fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 6px;
+    min-height: 0;
+  }
+
+  .karaoke-tv-shell .karaoke-left-rail {
+    display: contents;
+  }
+
+  .karaoke-tv-shell .side-reservation-panel {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 304px;
+    align-content: start;
+  }
+
+  .karaoke-tv-shell .side-reservation-panel .reservation-list {
+    max-height: 260px;
+  }
+
+  .karaoke-tv-shell .side-reservation-panel .tv-reservation-summary .tv-reservation-card {
+    min-height: 82px;
+  }
+
+  .karaoke-tv-shell .quick-number {
+    display: grid;
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: 1fr;
+    align-content: start;
+  }
+
+  .karaoke-tv-shell .quick-keypad {
+    display: grid;
+  }
+
+  .karaoke-tv-shell .quick-number .karaoke-action.full {
+    width: 100%;
+  }
+
+  .karaoke-tv-shell .karaoke-player-panel {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .karaoke-tv-shell .karaoke-list-panel {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}
