@@ -1371,8 +1371,8 @@ label {
 
 .karaoke-tv-shell .side-reservation-panel .tv-reservation-summary .tv-reservation-card {
   display: block;
-  min-height: 82px;
-  padding: 10px 12px;
+  min-height: 108px;
+  padding: 12px 14px;
   overflow: hidden;
 }
 
@@ -1388,10 +1388,10 @@ label {
 
 .karaoke-tv-shell .side-reservation-panel .tv-reservation-summary .reservation-title {
   display: -webkit-box;
-  max-height: 2.6em;
+  max-height: 3.9em;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   color: #f8fafc;
   font-size: 17px;
   font-weight: 900;
@@ -2274,19 +2274,19 @@ label {
   .karaoke-tv-shell .side-reservation-panel {
     grid-column: 1;
     grid-row: 1;
-    min-height: 304px;
+    min-height: 382px;
     align-content: start;
   }
 
   .karaoke-tv-shell .side-reservation-panel .reservation-list {
     grid-template-columns: 1fr;
     grid-auto-flow: row;
-    max-height: 260px;
+    max-height: 338px;
   }
 
   .karaoke-tv-shell .side-reservation-panel .tv-reservation-summary .tv-reservation-card {
     width: 100%;
-    min-height: 82px;
+    min-height: 108px;
   }
 
   .karaoke-tv-shell .quick-number {
