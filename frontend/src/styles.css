@@ -2315,3 +2315,439 @@ label {
     grid-row: 1 / span 2;
   }
 }
+
+.karaoke-tv-page {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  padding: 6px;
+  overflow: hidden;
+  background: #020617;
+  color: #f8fafc;
+}
+
+.karaoke-tv-page:focus {
+  outline: none;
+}
+
+.tv-search-panel,
+.tv-reservation-panel,
+.tv-keypad-panel,
+.tv-player-panel,
+.tv-song-panel {
+  min-width: 0;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  background: #0f172a;
+}
+
+.tv-search-panel {
+  padding: 6px 8px;
+}
+
+.tv-search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: end;
+}
+
+.tv-search-form label {
+  display: grid;
+  gap: 4px;
+  color: #dbeafe;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.tv-search-input-wrap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #64748b;
+}
+
+.tv-search-input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.tv-button,
+.tv-song-actions button,
+.tv-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.tv-button.primary,
+.tv-song-actions button:first-child,
+.tv-controls .primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.tv-button:disabled,
+.tv-song-actions button:disabled,
+.tv-controls button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.tv-button.full {
+  width: 100%;
+}
+
+.tv-layout {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.28fr) minmax(0, 1fr) minmax(360px, 0.24fr);
+  gap: 6px;
+  min-height: 0;
+}
+
+.tv-left-rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  min-height: 0;
+}
+
+.tv-reservation-panel,
+.tv-keypad-panel,
+.tv-player-panel,
+.tv-song-panel {
+  padding: 8px;
+}
+
+.tv-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tv-panel-head strong {
+  color: #f8fafc;
+  font-size: 17px;
+}
+
+.tv-panel-head span {
+  color: #93c5fd;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.tv-focus {
+  box-shadow: 0 0 0 2px #facc15 inset;
+}
+
+.tv-reservation-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.tv-reservation-card {
+  min-height: 108px;
+  padding: 12px 14px;
+  border: 1px solid #334155;
+  border-radius: 9px;
+  background: #111827;
+  overflow: hidden;
+}
+
+.tv-reservation-card.next-song {
+  border-color: #ef4444;
+  background: #3b1218;
+}
+
+.tv-reservation-card.second-song {
+  border-color: #3b82f6;
+  background: #0f2447;
+}
+
+.tv-reservation-card.later-song {
+  min-height: 80px;
+  opacity: 0.9;
+}
+
+.tv-reservation-card.active {
+  box-shadow: 0 0 0 2px #facc15 inset;
+}
+
+.tv-reservation-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 25px;
+  margin-bottom: 9px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: #1e293b;
+  color: #bfdbfe;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.next-song .tv-reservation-label {
+  background: #dc2626;
+  color: #fff;
+}
+
+.second-song .tv-reservation-label {
+  background: #2563eb;
+  color: #fff;
+}
+
+.tv-reservation-title {
+  display: -webkit-box;
+  max-height: 3.9em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  color: #f8fafc;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.36);
+}
+
+.tv-keypad-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, auto) auto;
+  gap: 8px;
+  align-content: start;
+}
+
+.tv-keypad-panel > strong {
+  font-size: 14px;
+}
+
+.tv-number-display {
+  display: grid;
+  place-items: center;
+  min-height: 48px;
+  border: 2px solid #334155;
+  border-radius: 9px;
+  background: #020617;
+  color: #facc15;
+  font-size: 26px;
+  font-weight: 900;
+}
+
+.tv-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.tv-keypad button {
+  min-height: clamp(50px, 7vh, 66px);
+  border: 1px solid #475569;
+  border-radius: 9px;
+  background: #1e293b;
+  color: #fff;
+  font-size: clamp(24px, 2.3vw, 32px);
+  font-weight: 900;
+}
+
+.tv-player-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  gap: 6px;
+  min-height: 0;
+}
+
+.tv-player-screen {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  border-radius: 10px;
+  background: #020617;
+  overflow: hidden;
+}
+
+.tv-player-screen video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.tv-standby {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  color: #cbd5e1;
+  text-align: center;
+}
+
+.tv-standby strong {
+  color: #fff;
+  font-size: 30px;
+}
+
+.tv-standby span {
+  font-size: 14px;
+}
+
+.tv-now {
+  display: grid;
+  gap: 3px;
+}
+
+.tv-now strong {
+  color: #fff;
+  font-size: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-now span {
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.tv-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tv-time-tags {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.tv-time-tags button {
+  min-height: 42px;
+  min-width: 120px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #111827;
+  color: #dbeafe;
+  font-weight: 900;
+}
+
+.tv-time-tags button.active {
+  border-color: #facc15;
+  color: #facc15;
+}
+
+.tv-song-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-color: #eab308;
+  min-height: 0;
+}
+
+.tv-song-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tv-song-card {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #334155;
+  border-radius: 9px;
+  background: #111827;
+}
+
+.tv-song-card.active {
+  border-color: #facc15;
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.45) inset;
+}
+
+.tv-song-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #f8fafc;
+  text-align: left;
+}
+
+.tv-karaoke-number {
+  display: grid;
+  place-items: center;
+  min-height: 38px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.tv-song-main strong {
+  display: -webkit-box;
+  max-height: 2.6em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.tv-song-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.tv-empty,
+.tv-message {
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.tv-empty {
+  padding: 14px;
+  border: 1px dashed #475569;
+  border-radius: 8px;
+}
+
+.tv-message {
+  padding: 0 4px;
+  font-size: 12px;
+}

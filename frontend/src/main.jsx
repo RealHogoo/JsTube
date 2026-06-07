@@ -840,6 +840,146 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
     );
   }
 
+  function renderTvReservationCard(item, index, label, extraClass = "") {
+    if (!item && index < 2) return null;
+    const classes = [
+      "tv-reservation-card",
+      extraClass,
+      focusArea === "queue" && selectedQueueIndex === index ? "active" : ""
+    ].filter(Boolean).join(" ");
+    return (
+      <article className={classes}>
+        <span className="tv-reservation-label">{label}</span>
+        <strong className="tv-reservation-title">{item ? reservationTitle(item) : "예약 대기 중"}</strong>
+      </article>
+    );
+  }
+
+  function renderTvReservationPanel() {
+    const next = queue[0];
+    const second = queue[1];
+    const extraCount = Math.max(queue.length - 2, 0);
+    return (
+      <section className={focusArea === "queue" ? "tv-reservation-panel tv-focus" : "tv-reservation-panel"}>
+        <div className="tv-panel-head">
+          <strong>예약 목록</strong>
+          <span>{reservationSummary(queue)}</span>
+        </div>
+        <div className="tv-reservation-list">
+          {renderTvReservationCard(next, 0, "다음곡", "next-song")}
+          {renderTvReservationCard(second, 1, "다다음곡", "second-song")}
+          {extraCount > 0 && renderTvReservationCard(null, 2, `+${extraCount}곡`, "later-song")}
+          {!queue.length && <p className="tv-empty">예약한 곡이 없습니다.</p>}
+        </div>
+      </section>
+    );
+  }
+
+  if (tvMode) {
+    return (
+      <main className="karaoke-tv-page" ref={shellRef} tabIndex={-1}>
+        <section className="tv-search-panel">
+          <form className="tv-search-form" onSubmit={submitSearch}>
+            <label>
+              <span>노래 검색</span>
+              <span className="tv-search-input-wrap">
+                <Search size={18} />
+                <input className="tv-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="제목, 가수, KY.12345, 태그" />
+              </span>
+            </label>
+            <button className="tv-button primary" type="submit" disabled={loading}>검색</button>
+            <button className="tv-button" type="button" onClick={() => { setQuery(""); setQuickNumber(""); loadKaraoke(""); }} disabled={loading}>초기화</button>
+          </form>
+        </section>
+
+        <section className="tv-layout">
+          <aside className="tv-left-rail">
+            {renderTvReservationPanel()}
+            <section className={focusArea === "keypad" ? "tv-keypad-panel tv-focus" : "tv-keypad-panel"}>
+              <strong>KY번호 빠른 입력</strong>
+              <div className="tv-number-display">{quickNumber || "숫자키 입력"}</div>
+              <div className="tv-keypad">
+                {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((value) => <button type="button" key={value} onClick={() => pressKeypad(value)}>{value}</button>)}
+                <button type="button" onClick={() => pressKeypad("back")}>←</button>
+                <button type="button" onClick={() => pressKeypad("0")}>0</button>
+                <button type="button" onClick={() => pressKeypad("clear")}>C</button>
+              </div>
+              <button className="tv-button primary full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
+            </section>
+          </aside>
+
+          <section className={focusArea === "player" ? "tv-player-panel tv-focus" : "tv-player-panel"}>
+            <div className="tv-player-screen">
+              {currentItem?.content_url ? (
+                <video
+                  ref={videoRef}
+                  src={currentItem.content_url}
+                  poster={hasVideoThumbnail(currentItem) ? currentItem.thumbnail_url : undefined}
+                  controls
+                  preload="metadata"
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onEnded={playNextSong}
+                  onTimeUpdate={(event) => setCurrentVideoTime(event.currentTarget.currentTime)}
+                />
+              ) : (
+                <div className="tv-standby">
+                  <Music size={58} />
+                  <strong>곡을 선택하세요</strong>
+                  <span>리모컨 방향키로 곡을 고르고 Enter를 누르면 재생됩니다.</span>
+                </div>
+              )}
+            </div>
+            <div className="tv-now">
+              <strong>{currentItem ? reservationTitle(currentItem) : "재생 대기"}</strong>
+              <span>{currentItem ? karaokeArtist(currentItem) : "예약 목록에서 다음 곡을 이어서 재생합니다."}</span>
+            </div>
+            <div className="tv-controls">
+              <button type="button" onClick={seekPreviousTimeTag} disabled={!timeTags.length}><SkipBack size={20} /> 이전태그</button>
+              <button className="primary" type="button" onClick={togglePlay} disabled={!currentItem}>{playing ? <Pause size={20} /> : <Play size={20} />} {playing ? "일시정지" : "재생"}</button>
+              <button type="button" onClick={seekNextTimeTag} disabled={!timeTags.length}><SkipForward size={20} /> 간주점프</button>
+              <button type="button" onClick={playNextSong} disabled={!queue.length}><ListMusic size={20} /> 다음곡</button>
+            </div>
+            {timeTags.length > 0 && (
+              <div className="tv-time-tags">
+                {timeTags.map((entry, index) => (
+                  <button className={index === activeTimeIndex ? "active" : ""} type="button" key={`${entry.seconds}-${entry.raw}`} onClick={() => seekToTimeTag(entry.seconds)}>
+                    <strong>{formatMediaTime(entry.seconds)}</strong>
+                    <span>{entry.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <aside className={focusArea === "list" ? "tv-song-panel tv-focus" : "tv-song-panel"}>
+            <div className="tv-panel-head">
+              <strong>곡 목록</strong>
+              <span>{items.length}곡 · {focusArea === "list" ? "선택 중" : "좌우키로 이동"}</span>
+            </div>
+            <div className="tv-song-list" ref={listRef}>
+              {items.map((item, index) => (
+                <article className={index === selectedIndex ? "tv-song-card active" : "tv-song-card"} data-karaoke-index={index} key={item.webhard_file_id}>
+                  <button className="tv-song-main" type="button" onClick={() => setSelectedIndex(index)} onDoubleClick={() => playNow(item)}>
+                    <span className="tv-karaoke-number">{karaokeNumber(item) || String(index + 1).padStart(2, "0")}</span>
+                    <strong>{reservationTitle(item)}</strong>
+                  </button>
+                  <div className="tv-song-actions">
+                    <button type="button" onClick={() => playNow(item)}><Play size={16} /> 재생</button>
+                    <button type="button" onClick={() => reserve(item)}><Plus size={16} /> 예약</button>
+                  </div>
+                </article>
+              ))}
+              {!items.length && !loading && <div className="tv-empty">검색 결과가 없습니다.</div>}
+            </div>
+          </aside>
+        </section>
+
+        {message && <p className="tv-message">{message}</p>}
+      </main>
+    );
+  }
+
   return (
     <main className={tvMode ? "karaoke-shell karaoke-tv-shell" : "karaoke-shell"} ref={shellRef} tabIndex={-1}>
       <section className="karaoke-search-panel">
