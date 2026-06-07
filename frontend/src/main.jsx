@@ -826,6 +826,20 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
               <input className="input karaoke-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="제목, 가수, KY.12345, 태그" />
             </span>
           </label>
+          <label className="tv-quick-search">
+            KY 번호
+            <span className="search-input-wrap">
+              <input
+                className="input karaoke-input"
+                inputMode="numeric"
+                value={quickNumber}
+                onChange={(event) => setQuickNumber(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                onFocus={() => setFocusArea("keypad")}
+                placeholder="00000"
+              />
+            </span>
+          </label>
+          <button className="btn primary karaoke-action tv-quick-action" type="button" onClick={searchQuickNumber} disabled={!quickNumber || loading}>번호검색</button>
           <button className="btn primary karaoke-action" type="submit" disabled={loading}>검색</button>
           <button className="btn karaoke-action" type="button" onClick={() => { setQuery(""); setQuickNumber(""); loadKaraoke(""); }} disabled={loading}>초기화</button>
         </form>

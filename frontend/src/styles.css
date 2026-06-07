@@ -501,6 +501,11 @@ label {
   outline: none;
 }
 
+.tv-quick-search,
+.tv-quick-action {
+  display: none;
+}
+
 .karaoke-tv-shell {
   position: fixed;
   inset: 0;
@@ -536,8 +541,16 @@ label {
 }
 
 .karaoke-tv-shell .karaoke-search {
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.36fr) auto auto auto;
   gap: 6px;
+}
+
+.karaoke-tv-shell .tv-quick-search {
+  display: grid;
+}
+
+.karaoke-tv-shell .tv-quick-action {
+  display: inline-flex;
 }
 
 .karaoke-tv-shell .karaoke-input,
