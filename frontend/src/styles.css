@@ -1377,14 +1377,17 @@ label {
   padding: 9px 10px;
 }
 
-.karaoke-tv-shell .tv-reservation-summary article > span {
+.karaoke-tv-shell .side-reservation-panel .tv-reservation-summary article .reservation-label {
+  grid-column: 1 / -1;
+  display: inline-flex;
   justify-self: start;
   min-height: 24px;
   padding: 4px 10px;
   font-size: 13px;
 }
 
-.karaoke-tv-shell .tv-reservation-summary strong {
+.karaoke-tv-shell .side-reservation-panel .tv-reservation-summary article .reservation-title {
+  grid-column: 1 / -1;
   display: -webkit-box;
   max-height: 2.6em;
   overflow: hidden;
