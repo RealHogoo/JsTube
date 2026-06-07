@@ -501,6 +501,216 @@ label {
   outline: none;
 }
 
+.karaoke-tv-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100vh;
+  height: 100dvh;
+  padding: 6px;
+  overflow: hidden;
+  background: #020617;
+}
+
+.karaoke-tv-shell .karaoke-search-panel {
+  grid-template-columns: minmax(180px, 0.55fr) minmax(260px, 0.85fr) minmax(360px, 1.15fr);
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+
+.karaoke-tv-shell .kind-badge {
+  min-height: 20px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.karaoke-tv-shell .karaoke-search-panel h1 {
+  margin: 2px 0 0;
+  font-size: clamp(18px, 1.7vw, 25px);
+}
+
+.karaoke-tv-shell .karaoke-search-panel p {
+  display: none;
+}
+
+.karaoke-tv-shell .karaoke-search {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.karaoke-tv-shell .karaoke-input,
+.karaoke-tv-shell .karaoke-action {
+  min-height: 36px;
+  font-size: 13px;
+}
+
+.karaoke-tv-shell .mobile-remote-panel,
+.karaoke-tv-shell .quick-number {
+  display: none;
+}
+
+.karaoke-tv-shell .karaoke-grid {
+  grid-template-columns: minmax(270px, 0.32fr) minmax(0, 1fr);
+  gap: 6px;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.karaoke-tv-shell .karaoke-left-rail {
+  min-height: 0;
+  gap: 0;
+}
+
+.karaoke-tv-shell .karaoke-list-panel,
+.karaoke-tv-shell .karaoke-player-panel {
+  min-height: 0;
+  padding: 8px;
+  border-radius: 10px;
+}
+
+.karaoke-tv-shell .karaoke-list-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.karaoke-tv-shell .karaoke-list-head {
+  margin-bottom: 6px;
+}
+
+.karaoke-tv-shell .karaoke-list-head strong {
+  font-size: 16px;
+}
+
+.karaoke-tv-shell .karaoke-list-head span {
+  font-size: 12px;
+}
+
+.karaoke-tv-shell .karaoke-list {
+  max-height: none;
+  height: 100%;
+  gap: 6px;
+}
+
+.karaoke-tv-shell .karaoke-card {
+  min-height: 54px;
+  padding: 6px;
+  border-radius: 10px;
+}
+
+.karaoke-tv-shell .karaoke-card-main {
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 7px;
+}
+
+.karaoke-tv-shell .karaoke-number {
+  min-height: 38px;
+  font-size: 14px;
+}
+
+.karaoke-tv-shell .karaoke-card strong,
+.karaoke-tv-shell .reservation-list strong {
+  font-size: 13px;
+}
+
+.karaoke-tv-shell .karaoke-card small,
+.karaoke-tv-shell .reservation-list small {
+  margin-top: 2px;
+  font-size: 10px;
+}
+
+.karaoke-tv-shell .karaoke-card-actions .btn {
+  min-height: 32px;
+  padding: 5px 8px;
+  font-size: 11px;
+}
+
+.karaoke-tv-shell .header-reservation-panel .karaoke-list-head {
+  margin-bottom: 3px;
+}
+
+.karaoke-tv-shell .header-reservation-panel .reservation-list {
+  max-height: 48px;
+}
+
+.karaoke-tv-shell .header-reservation-panel .reservation-list article {
+  min-height: 44px;
+  padding: 5px;
+}
+
+.karaoke-tv-shell .header-reservation-panel .reservation-list p {
+  padding: 6px;
+  font-size: 12px;
+}
+
+.karaoke-tv-shell .reservation-list article > span {
+  min-height: 20px;
+  padding: 3px 5px;
+  font-size: 10px;
+}
+
+.karaoke-tv-shell .karaoke-player-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
+}
+
+.karaoke-tv-shell .karaoke-player {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto;
+  border-radius: 10px;
+}
+
+.karaoke-tv-shell .karaoke-now {
+  padding: 5px 0;
+}
+
+.karaoke-tv-shell .karaoke-now strong {
+  font-size: 15px;
+}
+
+.karaoke-tv-shell .karaoke-now span {
+  margin-top: 1px;
+  font-size: 11px;
+}
+
+.karaoke-tv-shell .karaoke-controls {
+  gap: 6px;
+}
+
+.karaoke-tv-shell .karaoke-control {
+  min-height: 34px;
+  padding: 5px;
+  border-width: 1px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+
+.karaoke-tv-shell .karaoke-time-tags {
+  gap: 6px;
+  padding-top: 5px;
+}
+
+.karaoke-tv-shell .karaoke-time-tags button {
+  min-width: 104px;
+  min-height: 38px;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+
+.karaoke-tv-shell .time-tag-editor {
+  display: none;
+}
+
+.karaoke-tv-shell .karaoke-message {
+  max-height: 28px;
+  overflow: hidden;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
 .karaoke-search-panel,
 .karaoke-list-panel,
 .karaoke-player-panel,

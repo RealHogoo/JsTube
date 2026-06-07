@@ -63,6 +63,7 @@ function App() {
   const visibleItems = items;
   const displayCounts = counts;
   const karaokeRemoteSessionId = remoteSessionIdFromUrl();
+  const karaokeTvMode = karaokeTvModeFromUrl();
 
   async function request(path, options = {}) {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -219,11 +220,12 @@ function App() {
 
   return (
     <>
-      <header className="topbar">
+      {!karaokeTvMode && <header className="topbar">
         <strong>웹하드 미디어</strong>
         <nav>
           {currentUser?.is_admin && <button className={page === "media" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("media")}>미디어</button>}
           {currentUser && <button className={page === "karaoke" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("karaoke")}>노래방</button>}
+          {currentUser && <a href="?karaoke_tv=1">TV 노래방</a>}
           {currentUser?.is_admin && <button className={page === "youtube" ? "topbar-button active" : "topbar-button"} type="button" onClick={() => setPage("youtube")}>유튜브 저장</button>}
           {currentUser && <a href={`${WEBHARD_BASE_URL}/preview.html`} target="_blank" rel="noreferrer">웹하드</a>}
           {currentUser && <a href={`${ADMIN_BASE_URL}/`} target="_blank" rel="noreferrer">어드민</a>}
@@ -231,10 +233,12 @@ function App() {
           {currentUser && <button className="topbar-button" type="button" onClick={logout}>로그아웃</button>}
           {currentUser === null && <a className="active" href={loginUrl()}>로그인</a>}
         </nav>
-      </header>
+      </header>}
 
       {karaokeRemoteSessionId ? (
         <KaraokeRemotePage request={request} sessionId={karaokeRemoteSessionId} />
+      ) : karaokeTvMode ? (
+        <KaraokePage currentUser={currentUser} request={request} tvMode={true} />
       ) : page === "karaoke" ? (
         <KaraokePage currentUser={currentUser} request={request} />
       ) : page === "youtube" ? (
@@ -322,7 +326,7 @@ function App() {
         />
       )}
       {loading && <LoadingOverlay message={message} />}
-      <div className="build-version">media-service · git {version?.git_commit || "unknown"}</div>
+      {!karaokeTvMode && <div className="build-version">media-service · git {version?.git_commit || "unknown"}</div>}
     </>
   );
 }
@@ -379,7 +383,7 @@ function tabCount(counts, tabValue) {
   return counts.video || 0;
 }
 
-function KaraokePage({ currentUser, request }) {
+function KaraokePage({ currentUser, request, tvMode = false }) {
   const [items, setItems] = useState([]);
   const [query, setQuery] = useState("");
   const [quickNumber, setQuickNumber] = useState("");
@@ -787,7 +791,7 @@ function KaraokePage({ currentUser, request }) {
   }
 
   return (
-    <main className="karaoke-shell" ref={shellRef} tabIndex={-1}>
+    <main className={tvMode ? "karaoke-shell karaoke-tv-shell" : "karaoke-shell"} ref={shellRef} tabIndex={-1}>
       <section className="karaoke-search-panel">
         <div>
           <span className="kind-badge">노래방 모드</span>
@@ -1841,6 +1845,11 @@ function karaokeArtist(item) {
 function remoteSessionIdFromUrl() {
   if (typeof window === "undefined") return "";
   return new URLSearchParams(window.location.search).get("karaoke_remote") || "";
+}
+
+function karaokeTvModeFromUrl() {
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).get("karaoke_tv") === "1";
 }
 
 function karaokeRemoteUrl(sessionId) {
