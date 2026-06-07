@@ -545,16 +545,16 @@ label {
 }
 
 .karaoke-tv-shell .karaoke-search {
-  grid-template-columns: minmax(0, 1fr) minmax(110px, 0.36fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 6px;
 }
 
 .karaoke-tv-shell .tv-quick-search {
-  display: grid;
+  display: none;
 }
 
 .karaoke-tv-shell .tv-quick-action {
-  display: inline-flex;
+  display: none;
 }
 
 .karaoke-tv-shell .karaoke-input,
@@ -603,6 +603,7 @@ label {
   grid-column: 1;
   grid-row: 1;
   display: grid;
+  min-height: 126px;
   gap: 6px;
 }
 
@@ -714,14 +715,14 @@ label {
 
 .karaoke-tv-shell .side-reservation-panel .reservation-list {
   display: grid;
-  max-height: 170px;
+  max-height: 150px;
   overflow: auto;
 }
 
 .karaoke-tv-shell .side-reservation-panel .reservation-list article {
-  grid-template-columns: 64px minmax(0, 1fr);
-  min-height: 46px;
-  padding: 5px;
+  grid-template-columns: 72px minmax(0, 1fr);
+  min-height: 64px;
+  padding: 8px;
 }
 
 .karaoke-tv-shell .side-reservation-panel .reservation-list article button {
@@ -731,6 +732,16 @@ label {
 .karaoke-tv-shell .side-reservation-panel .reservation-list p {
   padding: 6px;
   font-size: 12px;
+}
+
+.karaoke-tv-shell .side-reservation-panel .reservation-list strong {
+  max-height: 2.8em;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.karaoke-tv-shell .side-reservation-panel .reservation-list small {
+  font-size: 11px;
 }
 
 .karaoke-tv-shell .reservation-list article > span {
