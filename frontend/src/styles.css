@@ -519,10 +519,14 @@ label {
 }
 
 .karaoke-tv-shell .karaoke-search-panel {
-  grid-template-columns: minmax(180px, 0.55fr) minmax(260px, 0.85fr) minmax(360px, 1.15fr);
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
   gap: 6px;
   padding: 6px 8px;
   border-radius: 10px;
+}
+
+.karaoke-tv-shell .karaoke-search-panel > div:first-child {
+  display: none;
 }
 
 .karaoke-tv-shell .kind-badge {
@@ -564,7 +568,7 @@ label {
 }
 
 .karaoke-tv-shell .karaoke-grid {
-  grid-template-columns: minmax(250px, 0.26fr) minmax(270px, 0.3fr) minmax(0, 1fr);
+  grid-template-columns: minmax(290px, 0.24fr) minmax(0, 1fr) minmax(300px, 0.26fr);
   gap: 6px;
   align-items: stretch;
   min-height: 0;
@@ -591,13 +595,13 @@ label {
 }
 
 .karaoke-tv-shell .karaoke-list-panel {
-  order: 2;
+  order: 3;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
 }
 
 .karaoke-tv-shell .karaoke-player-panel {
-  order: 3;
+  order: 2;
 }
 
 .karaoke-tv-shell .karaoke-list-head {
@@ -656,9 +660,9 @@ label {
 }
 
 .karaoke-tv-shell .quick-number-display {
-  min-height: 46px;
+  min-height: 50px;
   border-radius: 10px;
-  font-size: 20px;
+  font-size: 22px;
 }
 
 .karaoke-tv-shell .quick-keypad {
@@ -666,13 +670,13 @@ label {
 }
 
 .karaoke-tv-shell .quick-keypad button {
-  min-height: clamp(38px, 6vh, 54px);
+  min-height: clamp(42px, 6.5vh, 58px);
   border-radius: 9px;
-  font-size: clamp(18px, 2vw, 24px);
+  font-size: clamp(20px, 2.1vw, 26px);
 }
 
 .karaoke-tv-shell .quick-number .karaoke-action.full {
-  min-height: 40px;
+  min-height: 44px;
   font-size: 14px;
 }
 

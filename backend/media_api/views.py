@@ -15,6 +15,7 @@ from bson import ObjectId
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from pymongo.errors import PyMongoError
 
 from .auth import CurrentUser, auth_token, require_user
 from .mongo import karaoke_remote_collection, media_collection, media_user_state_collection, mongo_client
@@ -35,6 +36,20 @@ def ok(data: dict[str, Any] | list[Any]) -> JsonResponse:
 
 def bad_request(message: str) -> JsonResponse:
     return JsonResponse({"ok": False, "code": "BAD_REQUEST", "message": message}, status=400)
+
+
+def mongo_unavailable(message: str = "MongoDB connection is unavailable") -> JsonResponse:
+    return JsonResponse({"ok": False, "code": "MONGO_UNAVAILABLE", "message": message}, status=503)
+
+
+def mongo_safe_view(view):
+    def wrapped(request: HttpRequest, *args, **kwargs):
+        try:
+            return view(request, *args, **kwargs)
+        except PyMongoError as error:
+            LOGGER.warning("MongoDB unavailable while handling %s", request.path, exc_info=error)
+            return mongo_unavailable()
+    return wrapped
 
 
 def health(_request: HttpRequest) -> JsonResponse:
