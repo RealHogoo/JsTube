@@ -808,9 +808,9 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
             <span>{reservationSummary(queue)}</span>
           </div>
           <div className="reservation-list tv-reservation-summary">
-            {next && <article className="next-song"><span className="reservation-label">다음곡</span><strong className="reservation-title">{reservationTitle(next)}</strong></article>}
-            {second && <article className="second-song"><span className="reservation-label">다다음곡</span><strong className="reservation-title">{reservationTitle(second)}</strong></article>}
-            {extraCount > 0 && <article className="later-song"><span className="reservation-label">+{extraCount}곡</span><strong className="reservation-title">예약 대기 중</strong></article>}
+            {next && <article className="tv-reservation-card next-song"><span className="reservation-label">다음곡</span><strong className="reservation-title">{reservationTitle(next)}</strong></article>}
+            {second && <article className="tv-reservation-card second-song"><span className="reservation-label">다다음곡</span><strong className="reservation-title">{reservationTitle(second)}</strong></article>}
+            {extraCount > 0 && <article className="tv-reservation-card later-song"><span className="reservation-label">+{extraCount}곡</span><strong className="reservation-title">예약 대기 중</strong></article>}
             {!queue.length && <p>예약한 곡이 없습니다.</p>}
           </div>
         </div>
