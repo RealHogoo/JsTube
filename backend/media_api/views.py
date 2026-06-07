@@ -1232,10 +1232,15 @@ def int_param(request: HttpRequest, name: str, default: int) -> int:
 def karaoke_search_terms(keyword: str) -> list[str]:
     text = str(keyword or "").strip()
     terms = [text] if text else []
-    match = re.fullmatch(r"(?:KY\.?)?(\d{3,6})", text, flags=re.IGNORECASE)
+    match = re.fullmatch(r"(?:KY\.?)?(\d{1,6})", text, flags=re.IGNORECASE)
     if match:
         number = match.group(1)
-        terms.extend([number, f"KY.{number}", f"KY{number}"])
+        padded_numbers = [number]
+        for width in (4, 5, 6):
+            if len(number) < width:
+                padded_numbers.append(number.zfill(width))
+        for value in padded_numbers:
+            terms.extend([value, f"KY.{value}", f"KY{value}"])
     result = []
     for term in terms:
         if term and term not in result:
