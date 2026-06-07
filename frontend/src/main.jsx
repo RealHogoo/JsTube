@@ -797,6 +797,25 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
       extraClass,
       focusArea === "queue" ? "focus-area" : "",
     ].filter(Boolean).join(" ");
+    if (tvMode) {
+      const next = queue[0];
+      const second = queue[1];
+      const extraCount = Math.max(queue.length - 2, 0);
+      return (
+        <div className={className}>
+          <div className="karaoke-list-head">
+            <strong>예약 목록</strong>
+            <span>{reservationSummary(queue)}</span>
+          </div>
+          <div className="reservation-list tv-reservation-summary">
+            {next && <article className="next-song"><span>다음곡</span><strong>{reservationTitle(next)}</strong></article>}
+            {second && <article className="second-song"><span>다다음곡</span><strong>{reservationTitle(second)}</strong></article>}
+            {extraCount > 0 && <article className="later-song"><span>+{extraCount}곡</span><strong>예약 대기 중</strong></article>}
+            {!queue.length && <p>예약한 곡이 없습니다.</p>}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className={className}>
         <div className="karaoke-list-head">
@@ -968,6 +987,10 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
       {message && <p className="message karaoke-message">{message}</p>}
     </main>
   );
+}
+
+function reservationTitle(item) {
+  return item?.title || item?.display_name || item?.file_name || "제목 없음";
 }
 
 function reservationSummary(queue) {
