@@ -2279,10 +2279,13 @@ label {
   }
 
   .karaoke-tv-shell .side-reservation-panel .reservation-list {
+    grid-template-columns: 1fr;
+    grid-auto-flow: row;
     max-height: 260px;
   }
 
   .karaoke-tv-shell .side-reservation-panel .tv-reservation-summary .tv-reservation-card {
+    width: 100%;
     min-height: 82px;
   }
 
