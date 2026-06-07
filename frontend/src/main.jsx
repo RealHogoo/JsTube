@@ -639,7 +639,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
   }
 
   function moveFocusArea(delta) {
-    const areas = ["list", "player", "keypad", "queue"];
+    const areas = tvMode ? ["queue", "keypad", "player", "list"] : ["list", "player", "keypad", "queue"];
     setFocusArea((current) => {
       const currentIndex = Math.max(areas.indexOf(current), 0);
       return areas[(currentIndex + delta + areas.length) % areas.length];
@@ -654,7 +654,8 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
     if (focusArea === "queue") {
       setSelectedQueueIndex((current) => {
         if (!queue.length) return 0;
-        return Math.min(Math.max(current + delta, 0), queue.length - 1);
+        const maxIndex = tvMode ? Math.min(queue.length - 1, 1) : queue.length - 1;
+        return Math.min(Math.max(current + delta, 0), maxIndex);
       });
       return;
     }
@@ -797,25 +798,6 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
       extraClass,
       focusArea === "queue" ? "focus-area" : "",
     ].filter(Boolean).join(" ");
-    if (tvMode) {
-      const next = queue[0];
-      const second = queue[1];
-      const extraCount = Math.max(queue.length - 2, 0);
-      return (
-        <div className={className}>
-          <div className="karaoke-list-head">
-            <strong>예약 목록</strong>
-            <span>{reservationSummary(queue)}</span>
-          </div>
-          <div className="reservation-list tv-reservation-summary">
-            {next && <article className="tv-reservation-card next-song"><span className="reservation-label">다음곡</span><strong className="reservation-title">{reservationTitle(next)}</strong></article>}
-            {second && <article className="tv-reservation-card second-song"><span className="reservation-label">다다음곡</span><strong className="reservation-title">{reservationTitle(second)}</strong></article>}
-            {extraCount > 0 && <article className="tv-reservation-card later-song"><span className="reservation-label">+{extraCount}곡</span><strong className="reservation-title">예약 대기 중</strong></article>}
-            {!queue.length && <p>예약한 곡이 없습니다.</p>}
-          </div>
-        </div>
-      );
-    }
     return (
       <div className={className}>
         <div className="karaoke-list-head">
@@ -981,7 +963,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
   }
 
   return (
-    <main className={tvMode ? "karaoke-shell karaoke-tv-shell" : "karaoke-shell"} ref={shellRef} tabIndex={-1}>
+    <main className="karaoke-shell" ref={shellRef} tabIndex={-1}>
       <section className="karaoke-search-panel">
         <div>
           <span className="kind-badge">노래방 모드</span>
@@ -1032,7 +1014,6 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
 
       <section className="karaoke-grid">
         <div className="karaoke-left-rail">
-          {tvMode && renderReservationPanel("side-reservation-panel")}
           <div className={focusArea === "list" ? "karaoke-list-panel focus-area" : "karaoke-list-panel"}>
             <div className="karaoke-list-head">
               <strong>곡 목록</strong>
