@@ -559,33 +559,45 @@ label {
   font-size: 13px;
 }
 
-.karaoke-tv-shell .mobile-remote-panel,
-.karaoke-tv-shell .quick-number {
+.karaoke-tv-shell .mobile-remote-panel {
   display: none;
 }
 
 .karaoke-tv-shell .karaoke-grid {
-  grid-template-columns: minmax(270px, 0.32fr) minmax(0, 1fr);
+  grid-template-columns: minmax(250px, 0.26fr) minmax(270px, 0.3fr) minmax(0, 1fr);
   gap: 6px;
   align-items: stretch;
   min-height: 0;
 }
 
 .karaoke-tv-shell .karaoke-left-rail {
+  display: contents;
   min-height: 0;
   gap: 0;
 }
 
 .karaoke-tv-shell .karaoke-list-panel,
-.karaoke-tv-shell .karaoke-player-panel {
+.karaoke-tv-shell .karaoke-player-panel,
+.karaoke-tv-shell .quick-number {
   min-height: 0;
   padding: 8px;
   border-radius: 10px;
 }
 
+.karaoke-tv-shell .quick-number {
+  order: 1;
+  align-content: start;
+  gap: 6px;
+}
+
 .karaoke-tv-shell .karaoke-list-panel {
+  order: 2;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+.karaoke-tv-shell .karaoke-player-panel {
+  order: 3;
 }
 
 .karaoke-tv-shell .karaoke-list-head {
@@ -637,6 +649,31 @@ label {
   min-height: 32px;
   padding: 5px 8px;
   font-size: 11px;
+}
+
+.karaoke-tv-shell .quick-number > strong {
+  font-size: 13px;
+}
+
+.karaoke-tv-shell .quick-number-display {
+  min-height: 46px;
+  border-radius: 10px;
+  font-size: 20px;
+}
+
+.karaoke-tv-shell .quick-keypad {
+  gap: 6px;
+}
+
+.karaoke-tv-shell .quick-keypad button {
+  min-height: clamp(38px, 6vh, 54px);
+  border-radius: 9px;
+  font-size: clamp(18px, 2vw, 24px);
+}
+
+.karaoke-tv-shell .quick-number .karaoke-action.full {
+  min-height: 40px;
+  font-size: 14px;
 }
 
 .karaoke-tv-shell .header-reservation-panel .karaoke-list-head {
