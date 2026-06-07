@@ -7,6 +7,7 @@ const API_BASE = import.meta.env.VITE_MEDIA_API_BASE || "";
 const ADMIN_BASE_URL = serviceBaseUrl(import.meta.env.VITE_ADMIN_BASE_URL, 8081);
 const WEBHARD_BASE_URL = serviceBaseUrl(import.meta.env.VITE_WEBHARD_BASE_URL, 8083);
 const PAGE_SIZE = 30;
+const TV_KARAOKE_PAGE_SIZE = 4;
 const KARAOKE_QUEUE_STORAGE_KEY = "media.karaoke.queue";
 
 const TABS = [
@@ -405,6 +406,12 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
   const timeTags = useMemo(() => parseTimeTags(currentItem?.tags || []), [currentItem?.tags]);
   const activeTimeIndex = activeTimeTagIndex(timeTags, currentVideoTime);
   const canEditCurrentItem = canManageMedia(currentUser, currentItem);
+  const tvPageIndex = tvMode ? Math.floor(selectedIndex / TV_KARAOKE_PAGE_SIZE) : 0;
+  const tvPageCount = tvMode ? Math.max(Math.ceil(items.length / TV_KARAOKE_PAGE_SIZE), 1) : 1;
+  const tvPageStart = tvPageIndex * TV_KARAOKE_PAGE_SIZE;
+  const tvPageEnd = Math.min(tvPageStart + TV_KARAOKE_PAGE_SIZE, items.length);
+  const tvPageRangeLabel = items.length ? `${tvPageStart + 1}-${tvPageEnd}` : "0";
+  const tvVisibleItems = tvMode ? items.slice(tvPageStart, tvPageStart + TV_KARAOKE_PAGE_SIZE) : items;
 
   useEffect(() => {
     shellRef.current?.focus();
@@ -502,6 +509,16 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
         moveFocusArea(1);
         return;
       }
+      if (tvMode && focusArea === "list" && ["PageUp", "ChannelUp"].includes(event.key)) {
+        event.preventDefault();
+        moveTvPage(-1);
+        return;
+      }
+      if (tvMode && focusArea === "list" && ["PageDown", "ChannelDown"].includes(event.key)) {
+        event.preventDefault();
+        moveTvPage(1);
+        return;
+      }
       if (event.key === "Enter") {
         if (isNativeAction) {
           return;
@@ -544,9 +561,10 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
   }, [items, selectedIndex, selectedQueueIndex, focusArea, quickNumber, queue, currentItem, currentVideoTime]);
 
   useEffect(() => {
+    if (tvMode) return;
     const selected = listRef.current?.querySelector(`[data-karaoke-index="${selectedIndex}"]`);
     selected?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [selectedIndex]);
+  }, [selectedIndex, tvMode]);
 
   async function loadKaraoke(nextQuery = query) {
     setLoading(true);
@@ -687,6 +705,15 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
     setSelectedIndex((current) => {
       if (!items.length) return 0;
       return Math.min(Math.max(current + delta, 0), items.length - 1);
+    });
+  }
+
+  function moveTvPage(delta) {
+    if (!items.length) return;
+    setSelectedIndex((current) => {
+      const currentPage = Math.floor(current / TV_KARAOKE_PAGE_SIZE);
+      const nextPage = Math.min(Math.max(currentPage + delta, 0), tvPageCount - 1);
+      return Math.min(nextPage * TV_KARAOKE_PAGE_SIZE, items.length - 1);
     });
   }
 
@@ -937,10 +964,16 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
           <aside className={focusArea === "list" ? "tv-song-panel tv-focus" : "tv-song-panel"}>
             <div className="tv-panel-head">
               <strong>곡 목록</strong>
-              <span>{items.length}곡 · {focusArea === "list" ? "선택 중" : "좌우키로 이동"}</span>
+              <span>{items.length}곡 · {tvPageIndex + 1}/{tvPageCount}쪽 · {focusArea === "list" ? "선택 중" : "좌우키로 이동"}</span>
+            </div>
+            <div className="tv-page-guide">
+              <span>▲▼ 곡 이동</span>
+              <span>페이지 {tvPageRangeLabel}</span>
             </div>
             <div className="tv-song-list" ref={listRef}>
-              {items.map((item, index) => (
+              {tvVisibleItems.map((item, pageOffset) => {
+                const index = tvPageStart + pageOffset;
+                return (
                 <article className={index === selectedIndex ? "tv-song-card active" : "tv-song-card"} data-karaoke-index={index} key={item.webhard_file_id}>
                   <button className="tv-song-main" type="button" onClick={() => setSelectedIndex(index)} onDoubleClick={() => playNow(item)}>
                     <span className="tv-karaoke-number">{karaokeNumber(item) || String(index + 1).padStart(2, "0")}</span>
@@ -951,7 +984,8 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
                     <button type="button" onClick={() => reserve(item)}><Plus size={16} /> 예약</button>
                   </div>
                 </article>
-              ))}
+                );
+              })}
               {!items.length && !loading && <div className="tv-empty">검색 결과가 없습니다.</div>}
             </div>
           </aside>

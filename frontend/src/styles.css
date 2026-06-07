@@ -2216,9 +2216,19 @@ label {
 
 .tv-song-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-color: #eab308;
   min-height: 0;
+}
+
+.tv-page-guide {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #93c5fd;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .tv-song-list {
@@ -2226,7 +2236,7 @@ label {
   gap: 8px;
   align-content: start;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .tv-song-card {
