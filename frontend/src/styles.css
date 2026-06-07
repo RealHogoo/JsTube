@@ -480,11 +480,12 @@ label {
 
 .karaoke-shell {
   display: grid;
-  gap: 12px;
+  gap: clamp(6px, 1vh, 10px);
   width: 100%;
   max-width: none;
   margin: 0 auto;
-  padding: 12px;
+  padding: clamp(6px, 1vh, 10px);
+  overflow-x: hidden;
 }
 
 .karaoke-remote-shell {
@@ -515,21 +516,23 @@ label {
 
 .karaoke-search-panel {
   display: grid;
-  grid-template-columns: minmax(360px, 0.9fr) minmax(560px, 1.15fr) minmax(520px, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr) minmax(0, 1.2fr);
+  gap: clamp(8px, 1vw, 14px);
   align-items: center;
-  padding: 18px 20px;
+  min-width: 0;
+  padding: clamp(10px, 1.4vh, 16px);
 }
 
 .karaoke-search-panel h1 {
-  margin: 8px 0 6px;
-  font-size: clamp(26px, 3vw, 42px);
+  margin: 6px 0 4px;
+  font-size: clamp(24px, 2.6vw, 38px);
+  line-height: 1.08;
 }
 
 .karaoke-search-panel p {
   margin: 0;
   color: #cbd5e1;
-  font-size: 16px;
+  font-size: clamp(13px, 1.2vw, 16px);
 }
 
 .karaoke-search {
@@ -545,14 +548,14 @@ label {
 }
 
 .karaoke-input {
-  min-height: 56px;
-  font-size: 20px;
+  min-height: clamp(44px, 5.5vh, 56px);
+  font-size: clamp(16px, 1.5vw, 20px);
 }
 
 .karaoke-action {
-  min-height: 56px;
-  padding-inline: 20px;
-  font-size: 18px;
+  min-height: clamp(44px, 5.5vh, 56px);
+  padding-inline: clamp(12px, 1.4vw, 20px);
+  font-size: clamp(15px, 1.3vw, 18px);
   font-weight: 900;
 }
 
@@ -646,16 +649,18 @@ label {
 
 .karaoke-grid {
   display: grid;
-  grid-template-columns: minmax(420px, 0.48fr) minmax(760px, 1.52fr);
-  gap: 12px;
+  grid-template-columns: minmax(300px, 0.36fr) minmax(0, 1fr);
+  gap: clamp(8px, 1vw, 12px);
   align-items: start;
+  min-width: 0;
 }
 
 .karaoke-list-panel,
 .karaoke-player-panel,
 .karaoke-side-panel,
 .quick-number {
-  padding: 16px;
+  min-width: 0;
+  padding: clamp(10px, 1.4vh, 14px);
 }
 
 .karaoke-left-rail {
@@ -687,9 +692,9 @@ label {
 
 .karaoke-list {
   display: grid;
-  gap: 10px;
-  max-height: calc(100vh - 520px);
-  min-height: 320px;
+  gap: 8px;
+  max-height: clamp(260px, 42vh, 470px);
+  min-height: 0;
   overflow: auto;
   padding-right: 4px;
 }
@@ -697,10 +702,10 @@ label {
 .karaoke-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  min-height: 86px;
-  padding: 10px;
+  min-height: clamp(66px, 8.2vh, 84px);
+  padding: 8px;
   border: 2px solid #334155;
   border-radius: 12px;
   background: #172033;
@@ -714,8 +719,8 @@ label {
 
 .karaoke-card-main {
   display: grid;
-  grid-template-columns: 104px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: clamp(74px, 7.5vw, 104px) minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
   min-width: 0;
   padding: 0;
@@ -728,11 +733,11 @@ label {
 .karaoke-number {
   display: grid;
   place-items: center;
-  min-height: 56px;
+  min-height: clamp(46px, 6vh, 56px);
   border-radius: 10px;
   background: #2563eb;
   color: #fff;
-  font-size: 20px;
+  font-size: clamp(16px, 1.5vw, 20px);
   font-weight: 900;
   font-variant-numeric: tabular-nums;
 }
@@ -741,7 +746,7 @@ label {
 .reservation-list strong {
   display: block;
   overflow-wrap: anywhere;
-  font-size: 18px;
+  font-size: clamp(15px, 1.3vw, 18px);
 }
 
 .karaoke-card small,
@@ -761,7 +766,8 @@ label {
   display: grid;
   place-items: center;
   aspect-ratio: 16 / 9;
-  min-height: min(68vh, 820px);
+  min-height: 0;
+  max-height: clamp(360px, 68vh, 760px);
   overflow: hidden;
   border-radius: 12px;
   background: #020617;
@@ -790,18 +796,18 @@ label {
 .karaoke-now {
   display: grid;
   gap: 4px;
-  padding: 14px 0 10px;
+  padding: clamp(8px, 1.1vh, 12px) 0 clamp(6px, 1vh, 10px);
 }
 
 .karaoke-now strong {
   overflow-wrap: anywhere;
-  font-size: 24px;
+  font-size: clamp(18px, 1.7vw, 24px);
 }
 
 .karaoke-controls {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .karaoke-control {
@@ -809,13 +815,13 @@ label {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 64px;
-  padding: 10px;
+  min-height: clamp(46px, 6vh, 62px);
+  padding: 8px;
   border: 2px solid #475569;
   border-radius: 12px;
   background: #1e293b;
   color: #f8fafc;
-  font-size: 18px;
+  font-size: clamp(14px, 1.25vw, 18px);
   font-weight: 900;
 }
 
@@ -909,7 +915,7 @@ label {
 
 .header-reservation-panel .reservation-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-height: 126px;
+  max-height: clamp(74px, 12vh, 112px);
   overflow: hidden;
 }
 
@@ -920,12 +926,12 @@ label {
 .quick-number-display {
   display: grid;
   place-items: center;
-  min-height: 64px;
+  min-height: clamp(44px, 5.8vh, 58px);
   border: 2px solid #334155;
   border-radius: 12px;
   background: #020617;
   color: #facc15;
-  font-size: 26px;
+  font-size: clamp(18px, 2vw, 24px);
   font-weight: 900;
   font-variant-numeric: tabular-nums;
 }
@@ -933,16 +939,16 @@ label {
 .quick-keypad {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 6px;
 }
 
 .quick-keypad button {
-  min-height: 58px;
+  min-height: clamp(38px, 5.2vh, 56px);
   border: 1px solid #475569;
   border-radius: 10px;
   background: #1e293b;
   color: #fff;
-  font-size: 22px;
+  font-size: clamp(16px, 1.7vw, 22px);
   font-weight: 900;
 }
 
@@ -955,10 +961,11 @@ label {
 
 .reservation-list article {
   display: grid;
-  grid-template-columns: 70px minmax(0, 1fr) auto auto;
+  grid-template-columns: clamp(54px, 5.5vw, 70px) minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
-  padding: 9px;
+  min-width: 0;
+  padding: 8px;
   border: 1px solid #334155;
   border-radius: 10px;
   background: #172033;
@@ -973,12 +980,12 @@ label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 28px;
-  padding: 4px 7px;
+  min-height: 26px;
+  padding: 4px 6px;
   border-radius: 999px;
   background: #1e293b;
   color: #93c5fd;
-  font-size: 12px;
+  font-size: clamp(11px, 0.95vw, 12px);
   font-weight: 900;
   white-space: nowrap;
 }
@@ -1501,13 +1508,77 @@ label {
   }
 
   .karaoke-grid,
-  .karaoke-stage,
   .karaoke-search-panel {
     grid-template-columns: 1fr;
   }
 
   .karaoke-list {
     max-height: 460px;
+  }
+}
+
+@media (max-width: 1380px) {
+  .karaoke-search-panel {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+  }
+
+  .karaoke-search-panel > form {
+    grid-column: 1 / -1;
+  }
+
+  .karaoke-grid {
+    grid-template-columns: minmax(280px, 0.34fr) minmax(0, 1fr);
+  }
+
+  .karaoke-card {
+    grid-template-columns: 1fr;
+  }
+
+  .karaoke-card-actions {
+    justify-content: flex-end;
+  }
+
+  .quick-number {
+    padding: 10px;
+  }
+}
+
+@media (max-height: 760px) and (min-width: 1121px) {
+  .karaoke-shell {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .karaoke-search-panel {
+    padding: 10px 12px;
+  }
+
+  .karaoke-search-panel h1 {
+    font-size: clamp(22px, 2.1vw, 34px);
+  }
+
+  .karaoke-search-panel p {
+    font-size: 13px;
+  }
+
+  .karaoke-list-head {
+    margin-bottom: 8px;
+  }
+
+  .karaoke-list {
+    max-height: 36vh;
+  }
+
+  .karaoke-card {
+    min-height: 62px;
+  }
+
+  .quick-keypad button {
+    min-height: 36px;
+  }
+
+  .karaoke-player {
+    max-height: 58vh;
   }
 }
 
