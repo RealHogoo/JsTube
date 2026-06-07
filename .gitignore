@@ -2,8 +2,11 @@
 *.pyc
 __pycache__/
 .venv/
+.runtime/
 db.sqlite3
 *.sqlite3
+logs/
+*.log
 
 frontend/node_modules/
 frontend/dist/
