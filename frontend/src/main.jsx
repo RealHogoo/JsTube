@@ -790,6 +790,37 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
     }
   }
 
+  function renderReservationPanel(extraClass = "") {
+    const className = [
+      "reservation-panel",
+      "header-reservation-panel",
+      extraClass,
+      focusArea === "queue" ? "focus-area" : "",
+    ].filter(Boolean).join(" ");
+    return (
+      <div className={className}>
+        <div className="karaoke-list-head">
+          <strong>예약 목록</strong>
+          <span>{reservationSummary(queue)}</span>
+        </div>
+        <div className="reservation-list">
+          {queue.map((item, index) => (
+            <article className={reservationItemClass(index, selectedQueueIndex)} key={item.webhard_file_id}>
+              <span>{reservationOrderLabel(index)}</span>
+              <div>
+                <strong>{item.title || item.display_name || item.file_name}</strong>
+                <small>{karaokeArtist(item)}</small>
+              </div>
+              <button className="btn icon-only" type="button" onClick={() => playReserved(index)} aria-label="예약 재생"><Play size={16} /></button>
+              <button className="btn icon-only" type="button" onClick={() => removeReserved(item)} aria-label="예약 삭제"><Trash2 size={16} /></button>
+            </article>
+          ))}
+          {!queue.length && <p>예약한 곡이 없습니다.</p>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className={tvMode ? "karaoke-shell karaoke-tv-shell" : "karaoke-shell"} ref={shellRef} tabIndex={-1}>
       <section className="karaoke-search-panel">
@@ -798,26 +829,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
           <h1>리모컨으로 고르고 예약하기</h1>
           <p>방향키 좌우로 영역 이동, 상하로 선택 이동, Enter로 실행합니다. 숫자키는 KY번호 검색입니다.</p>
         </div>
-        <div className={focusArea === "queue" ? "reservation-panel header-reservation-panel focus-area" : "reservation-panel header-reservation-panel"}>
-          <div className="karaoke-list-head">
-            <strong>예약 목록</strong>
-            <span>{reservationSummary(queue)}</span>
-          </div>
-          <div className="reservation-list">
-            {queue.map((item, index) => (
-              <article className={reservationItemClass(index, selectedQueueIndex)} key={item.webhard_file_id}>
-                <span>{reservationOrderLabel(index)}</span>
-                <div>
-                  <strong>{item.title || item.display_name || item.file_name}</strong>
-                  <small>{karaokeArtist(item)}</small>
-                </div>
-                <button className="btn icon-only" type="button" onClick={() => playReserved(index)} aria-label="예약 재생"><Play size={16} /></button>
-                <button className="btn icon-only" type="button" onClick={() => removeReserved(item)} aria-label="예약 삭제"><Trash2 size={16} /></button>
-              </article>
-            ))}
-            {!queue.length && <p>예약된 곡이 없습니다.</p>}
-          </div>
-        </div>
+        {!tvMode && renderReservationPanel()}
         <form className="karaoke-search" onSubmit={submitSearch}>
           <label>
             노래 검색
@@ -861,6 +873,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
 
       <section className="karaoke-grid">
         <div className="karaoke-left-rail">
+          {tvMode && renderReservationPanel("side-reservation-panel")}
           <div className={focusArea === "list" ? "karaoke-list-panel focus-area" : "karaoke-list-panel"}>
             <div className="karaoke-list-head">
               <strong>곡 목록</strong>
