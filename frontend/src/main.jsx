@@ -481,7 +481,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
       }
       if (/^\d$/.test(event.key)) {
         event.preventDefault();
-        setQuickNumber((value) => `${value}${event.key}`.slice(0, 6));
+        setQuickNumber((value) => `${value}${event.key}`.slice(0, 7));
         return;
       }
       if (event.key === "Backspace" && quickNumber) {
@@ -639,7 +639,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
 
   function searchQuickNumber() {
     if (!quickNumber) return;
-    const nextQuery = `KY.${quickNumber}`;
+    const nextQuery = quickNumber;
     setQuery(nextQuery);
     loadKaraoke(nextQuery);
   }
@@ -653,7 +653,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
       setQuickNumber((current) => current.slice(0, -1));
       return;
     }
-    setQuickNumber((current) => `${current}${value}`.slice(0, 6));
+    setQuickNumber((current) => `${current}${value}`.slice(0, 7));
   }
 
   function moveFocusArea(delta) {
@@ -913,7 +913,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
                 <button type="button" onClick={() => pressKeypad("0")}>0</button>
                 <button type="button" onClick={() => pressKeypad("clear")}>C</button>
               </div>
-              <button className="tv-button primary full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
+              <button className="tv-button primary full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>번호 검색</button>
             </section>
           </aside>
 
@@ -1020,7 +1020,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
                 className="input karaoke-input"
                 inputMode="numeric"
                 value={quickNumber}
-                onChange={(event) => setQuickNumber(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                onChange={(event) => setQuickNumber(event.target.value.replace(/\D/g, "").slice(0, 7))}
                 onFocus={() => setFocusArea("keypad")}
                 placeholder="00000"
               />
@@ -1081,7 +1081,7 @@ function KaraokePage({ currentUser, request, tvMode = false }) {
               <button type="button" onClick={() => pressKeypad("0")}>0</button>
               <button type="button" onClick={() => pressKeypad("clear")}>C</button>
             </div>
-            <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
+            <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>번호 검색</button>
           </div>
         </div>
 
@@ -1225,12 +1225,12 @@ function KaraokeRemotePage({ request, sessionId }) {
       setQuickNumber((current) => current.slice(0, -1));
       return;
     }
-    setQuickNumber((current) => `${current}${value}`.slice(0, 6));
+    setQuickNumber((current) => `${current}${value}`.slice(0, 7));
   }
 
   function searchQuickNumber() {
     if (!quickNumber) return;
-    const nextQuery = `KY.${quickNumber}`;
+    const nextQuery = quickNumber;
     setQuery(nextQuery);
     search(nextQuery);
   }
@@ -1272,7 +1272,7 @@ function KaraokeRemotePage({ request, sessionId }) {
           <button type="button" onClick={() => pressKeypad("0")}>0</button>
           <button type="button" onClick={() => pressKeypad("clear")}>C</button>
         </div>
-        <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>KY 검색</button>
+        <button className="btn primary karaoke-action full" type="button" onClick={searchQuickNumber} disabled={!quickNumber}>번호 검색</button>
       </section>
 
       <section className="remote-song-list">
@@ -2023,22 +2023,24 @@ function formatDateTime(value) {
 
 function normalizeKaraokeQuery(value) {
   const text = String(value || "").trim();
-  const numberMatch = text.match(/^(?:KY\.?|ky\.?)?(\d{3,6})$/);
+  const numberMatch = text.match(/^(?:KY\.?|ky\.?)?(\d{3,7})$/);
   if (numberMatch) {
-    return `KY.${numberMatch[1]}`;
+    return numberMatch[1];
   }
   return text;
 }
 
 function karaokeNumber(item) {
   if (item?.karaoke_number) return item.karaoke_number;
-  const tags = item?.tags || [];
+  const tags = [...(item?.tags || []), ...(item?.webhard_tags || [])];
   for (const tag of tags) {
-    const match = String(tag || "").match(/KY\.?(\d{3,6})/i);
+    const match = String(tag || "").match(/KY\.?(\d{3,7})/i);
     if (match) return `KY.${match[1]}`;
+    const numericMatch = String(tag || "").trim().match(/^\d{3,7}$/);
+    if (numericMatch) return `KY.${numericMatch[0]}`;
   }
   const text = `${item?.title || ""} ${item?.display_name || ""} ${item?.file_name || ""}`;
-  const match = text.match(/KY\.?(\d{3,6})/i);
+  const match = text.match(/KY\.?(\d{3,7})/i);
   return match ? `KY.${match[1]}` : "";
 }
 

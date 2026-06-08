@@ -214,12 +214,15 @@ def media_document(row: dict[str, Any], synced_at: datetime, owner_is_admin: boo
     thumbnail_url = f"/api/media/{file_id}/thumbnail-file/" if row.get("thumbnail_path") else ""
     if not thumbnail_url and content_kind == "IMAGE":
         thumbnail_url = f"/api/media/{file_id}/content-file/"
+    webhard_tags = normalize_webhard_tags(row.get("tags"))
     return {
         "webhard_file_id": file_id,
         "owner_user_id": str(row["owner_user_id"]),
         "owner_is_admin": owner_is_admin,
         "file_name": row.get("file_name") or "",
         "display_name": row.get("display_name") or row.get("file_name") or "",
+        "webhard_memo": str(row.get("memo") or "").strip()[:2000],
+        "webhard_tags": webhard_tags,
         "file_size": int(row.get("file_size") or 0),
         "content_type": row.get("content_type") or "application/octet-stream",
         "content_kind": content_kind,
@@ -231,6 +234,16 @@ def media_document(row: dict[str, Any], synced_at: datetime, owner_is_admin: boo
         "webhard_updated_at": row.get("updated_at"),
         "synced_at": synced_at,
     }
+
+
+def normalize_webhard_tags(value: Any) -> list[str]:
+    items = value if isinstance(value, list) else str(value or "").split(",")
+    result = []
+    for item in items:
+        tag = str(item or "").strip()
+        if tag and tag not in result:
+            result.append(tag[:40])
+    return result[:30]
 
 
 def internal_post(current_user: CurrentUser | None, path: str, payload: dict[str, Any], timeout: int = 15) -> dict[str, Any]:

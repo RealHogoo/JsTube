@@ -278,7 +278,18 @@ def media_list(request: HttpRequest) -> JsonResponse:
     if request.GET.get("q") and keyword:
         search_terms = karaoke_search_terms(keyword) if content_kind == "KARAOKE" else [keyword]
         search_patterns = [re.escape(term) for term in search_terms]
-        search_fields = ["title", "display_name", "file_name", "tags", "album", "description", "channel_name", "owner_user_id"]
+        search_fields = [
+            "title",
+            "display_name",
+            "file_name",
+            "tags",
+            "webhard_tags",
+            "album",
+            "description",
+            "webhard_memo",
+            "channel_name",
+            "owner_user_id",
+        ]
         search_query = {"$or": []}
         for field_name in search_fields:
             search_query["$or"].extend(
@@ -711,6 +722,8 @@ def media_list_projection() -> dict[str, int]:
         "channel_name": 1,
         "album": 1,
         "tags": 1,
+        "webhard_tags": 1,
+        "webhard_memo": 1,
         "favorite": 1,
         "view_count": 1,
         "like_count": 1,
@@ -1153,11 +1166,15 @@ def channel_name(item: dict[str, Any]) -> str:
 
 def karaoke_number(item: dict[str, Any]) -> str:
     values = list(item.get("tags") or [])
+    values.extend(item.get("webhard_tags") or [])
     values.extend([item.get("title"), item.get("display_name"), item.get("file_name")])
     for value in values:
-        match = re.search(r"KY\.?(\d{3,6})", str(value or ""), flags=re.IGNORECASE)
+        match = re.search(r"KY\.?(\d{3,7})", str(value or ""), flags=re.IGNORECASE)
         if match:
             return f"KY.{match.group(1)}"
+        numeric_match = re.fullmatch(r"\d{3,7}", str(value or "").strip())
+        if numeric_match:
+            return f"KY.{numeric_match.group(0)}"
     return ""
 
 
@@ -1166,9 +1183,9 @@ def karaoke_artist(item: dict[str, Any]) -> str:
         return str(item.get("channel_name"))
     if item.get("album"):
         return str(item.get("album"))
-    for tag in item.get("tags") or []:
+    for tag in list(item.get("tags") or []) + list(item.get("webhard_tags") or []):
         text = str(tag or "").strip()
-        if text and not re.match(r"KY\.?\d+", text, flags=re.IGNORECASE) and not parse_time_marker(text):
+        if text and not re.match(r"KY\.?\d+", text, flags=re.IGNORECASE) and not re.fullmatch(r"\d{3,7}", text) and not parse_time_marker(text):
             return text
     return ""
 
@@ -1232,11 +1249,11 @@ def int_param(request: HttpRequest, name: str, default: int) -> int:
 def karaoke_search_terms(keyword: str) -> list[str]:
     text = str(keyword or "").strip()
     terms = [text] if text else []
-    match = re.fullmatch(r"(?:KY\.?)?(\d{1,6})", text, flags=re.IGNORECASE)
+    match = re.fullmatch(r"(?:KY\.?)?(\d{1,7})", text, flags=re.IGNORECASE)
     if match:
         number = match.group(1)
         padded_numbers = [number]
-        for width in (4, 5, 6):
+        for width in (4, 5, 6, 7):
             if len(number) < width:
                 padded_numbers.append(number.zfill(width))
         for value in padded_numbers:
